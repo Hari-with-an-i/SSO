@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+    font-family: 'Nunito', sans-serif;
+    color: #444444;
+    background-color: #FAF7F0;
+}
+.app-screen {
+    width: 100%;
+    min-height: 100vh;
+    padding-bottom: 100px;
+    transition: background-color 0.5s ease;
+}
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: #FAF7F0; }
+::-webkit-scrollbar-thumb { background: #9CAF88; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #8a9f7a; }

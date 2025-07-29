@@ -1,0 +1,1274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Serious Studies Only - Live App</title>
+    
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React and Babel for running JSX in the browser -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Firebase SDKs (using the compat libraries for broader compatibility) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+
+    <!-- Google Identity Services for Web (for Google Sign-In) -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Kalam:wght@300;400;700&family=Caveat:wght@400;700&family=Amatic+SC:wght@400;700&family=Nunito:wght@400;600;700&family=Comfortaa:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Nunito', sans-serif;
+            color: #444444;
+            background-color: #FAF7F0;
+        }
+        .font-header { font-family: 'Amatic SC', cursive; }
+        .font-handwriting { font-family: 'Caveat', cursive; }
+        .font-doodle { font-family: 'Kalam', cursive; }
+        .app-screen {
+            width: 100%;
+            min-height: 100vh;
+            padding-bottom: 100px;
+            transition: background-color 0.5s ease;
+        }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #FAF7F0; }
+        ::-webkit-scrollbar-thumb { background: #9CAF88; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #8a9f7a; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        //======================================================================
+        // 1. FIREBASE & GOOGLE SETUP
+        //======================================================================
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAppdY_vre_Up32vlXaUAzs4-9X2dF0Ftc",
+            authDomain: "serious-studies-only.firebaseapp.com",
+            projectId: "serious-studies-only",
+            storageBucket: "serious-studies-only.appspot.com",
+            messagingSenderId: "445345031564",
+            appId: "1:445345031564:web:2616ac4c9ee5210d44e2a9",
+            measurementId: "G-Z1EHN5Z7MS"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        //======================================================================
+        // 2. GOOGLE DRIVE MANAGER (Adapted for Web)
+        //======================================================================
+        
+        class GoogleDriveManager {
+            constructor() {
+                this.accessToken = null;
+                this.folderIds = null;
+                this.tokenClient = null;
+            }
+
+            silentConnect() {
+                return new Promise((resolve) => {
+                    try {
+                        this.tokenClient = google.accounts.oauth2.initTokenClient({
+                            client_id: '445345031564-qi3unbtf1ube5eo38qitdeud0vhpur0q.apps.googleusercontent.com',
+                            scope: 'https://www.googleapis.com/auth/drive.file',
+                            callback: async (tokenResponse) => {
+                                if (tokenResponse && tokenResponse.access_token) {
+                                    this.accessToken = tokenResponse.access_token;
+                                    await this.loadFolderIds();
+                                    resolve(true);
+                                } else {
+                                    resolve(false);
+                                }
+                            },
+                        });
+                        this.tokenClient.requestAccessToken({ prompt: '' });
+                    } catch (error) {
+                        console.error("GSI client init failed for silent connect:", error);
+                        resolve(false);
+                    }
+                });
+            }
+
+            connectDrive() {
+                return new Promise((resolve, reject) => {
+                    try {
+                        this.tokenClient = google.accounts.oauth2.initTokenClient({
+                            client_id: '445345031564-qi3unbtf1ube5eo38qitdeud0vhpur0q.apps.googleusercontent.com',
+                            scope: 'https://www.googleapis.com/auth/drive.file',
+                            callback: async (tokenResponse) => {
+                                if (tokenResponse && tokenResponse.access_token) {
+                                    this.accessToken = tokenResponse.access_token;
+                                    await this.loadFolderIds();
+                                    resolve(true);
+                                } else {
+                                    reject(false);
+                                }
+                            },
+                        });
+                        this.tokenClient.requestAccessToken();
+                    } catch (error) {
+                        reject(false);
+                    }
+                });
+            }
+
+            async loadFolderIds() {
+                try {
+                    const storedFolderIds = localStorage.getItem('googleDriveFolderIds');
+                    if (storedFolderIds) {
+                        this.folderIds = JSON.parse(storedFolderIds);
+                    } else {
+                        this.folderIds = await this.createFolderStructure(this.accessToken);
+                        if (this.folderIds) {
+                            localStorage.setItem('googleDriveFolderIds', JSON.stringify(this.folderIds));
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error loading folder IDs:', error);
+                }
+            }
+
+            async createFolder(accessToken, folderName, parentId = null) {
+                const DRIVE_API_URL = 'https://www.googleapis.com/drive/v3/files';
+                const metadata = {
+                    name: folderName,
+                    mimeType: 'application/vnd.google-apps.folder',
+                    ...(parentId && { parents: [parentId] })
+                };
+                const response = await fetch(DRIVE_API_URL, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(metadata),
+                });
+                const data = await response.json();
+                return response.ok ? data.id : null;
+            }
+
+            async findFolder(accessToken, folderName, parentId) {
+                const DRIVE_API_URL = 'https://www.googleapis.com/drive/v3/files';
+                const query = `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and '${parentId}' in parents and trashed=false`;
+                const response = await fetch(`${DRIVE_API_URL}?q=${encodeURIComponent(query)}&fields=files(id)`, {
+                    headers: { Authorization: `Bearer ${accessToken}` },
+                });
+                const data = await response.json();
+                return response.ok && data.files.length > 0 ? data.files[0].id : null;
+            }
+            
+            async createFolderStructure(accessToken) {
+                let mainFolderId = await this.findFolder(accessToken, 'Serious Studies Only', 'root');
+                if (!mainFolderId) mainFolderId = await this.createFolder(accessToken, 'Serious Studies Only');
+                if (!mainFolderId) return null;
+
+                const subfolders = ['photos', 'voice_messages', 'doodles_and_drawings', 'stickers_and_assets', 'backups', 'chat_media'];
+                const folderIds = { main: mainFolderId };
+
+                for (const folder of subfolders) {
+                    let folderId = await this.findFolder(accessToken, folder, mainFolderId);
+                    if (!folderId) folderId = await this.createFolder(accessToken, folder, mainFolderId);
+                    folderIds[folder] = folderId;
+                }
+                return folderIds;
+            }
+
+            async makeFilePublic(fileId) {
+                try {
+                    const PERMISSIONS_API_URL = `https://www.googleapis.com/drive/v3/files/${fileId}/permissions`;
+                    await fetch(PERMISSIONS_API_URL, {
+                        method: 'POST',
+                        headers: {
+                            Authorization: `Bearer ${this.accessToken}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            role: 'reader',
+                            type: 'anyone',
+                        }),
+                    });
+                } catch (error) {
+                    console.error("Failed to make file public:", error);
+                }
+            }
+
+            async uploadFile(fileObject, folderName) {
+                if (!this.accessToken || !this.folderIds || !this.folderIds[folderName]) {
+                    alert("Google Drive not connected or folders not found. Please connect in Settings.");
+                    return null;
+                }
+                
+                const UPLOAD_API_URL = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+                const metadata = {
+                    name: fileObject.name,
+                    parents: [this.folderIds[folderName]],
+                    mimeType: fileObject.type,
+                };
+                
+                const form = new FormData();
+                form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+                form.append('file', fileObject);
+
+                try {
+                    const response = await fetch(UPLOAD_API_URL, {
+                        method: 'POST',
+                        headers: { Authorization: `Bearer ${this.accessToken}` },
+                        body: form,
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        const fileId = data.id;
+                        await this.makeFilePublic(fileId);
+                        return fileId;
+                    } else {
+                        console.error("Google Drive API returned an error:", data);
+                        return null;
+                    }
+                } catch (error) {
+                    console.error("Error during fetch to Google Drive:", error);
+                    return null;
+                }
+            }
+
+            getPublicViewUrl(fileId) {
+                return `https://lh3.googleusercontent.com/d/${fileId}`;
+            }
+        }
+        const googleDriveManager = new GoogleDriveManager();
+
+        //======================================================================
+        // 3. REACT COMPONENTS (Adapted for Web)
+        //======================================================================
+
+        const DoodleCanvas = ({ isActive, onClose }) => {
+            const canvasRef = useRef(null);
+            const [color, setColor] = useState('#444444');
+            const isDrawing = useRef(false);
+            const lastPos = useRef({ x: 0, y: 0 });
+
+            const getCoords = (e) => {
+                const canvas = canvasRef.current;
+                const rect = canvas.getBoundingClientRect();
+                if (e.touches && e.touches.length > 0) {
+                    return [e.touches[0].clientX - rect.left, e.touches[0].clientY - rect.top];
+                }
+                return [e.clientX - rect.left, e.clientY - rect.top];
+            }
+
+            const startDrawing = useCallback((e) => {
+                e.preventDefault();
+                isDrawing.current = true;
+                const [x, y] = getCoords(e);
+                const ctx = canvasRef.current.getContext('2d');
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                lastPos.current = { x, y };
+            }, []);
+
+            const draw = useCallback((e) => {
+                e.preventDefault();
+                if (!isDrawing.current) return;
+                const ctx = canvasRef.current.getContext('2d');
+                const [x, y] = getCoords(e);
+                ctx.lineTo(x, y);
+                ctx.stroke();
+                lastPos.current = { x, y };
+            }, []);
+
+            const stopDrawing = useCallback(() => { isDrawing.current = false; }, []);
+
+            useEffect(() => {
+                const canvas = canvasRef.current;
+                if (!canvas || !isActive) return;
+
+                const ctx = canvas.getContext('2d');
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                ctx.lineJoin = 'round';
+                ctx.lineCap = 'round';
+                ctx.lineWidth = 5;
+                ctx.strokeStyle = color;
+
+                canvas.addEventListener('mousedown', startDrawing);
+                canvas.addEventListener('mousemove', draw);
+                canvas.addEventListener('mouseup', stopDrawing);
+                canvas.addEventListener('mouseout', stopDrawing);
+                canvas.addEventListener('touchstart', startDrawing, { passive: false });
+                canvas.addEventListener('touchmove', draw, { passive: false });
+                canvas.addEventListener('touchend', stopDrawing);
+
+                return () => {
+                    canvas.removeEventListener('mousedown', startDrawing);
+                    canvas.removeEventListener('mousemove', draw);
+                    canvas.removeEventListener('mouseup', stopDrawing);
+                    canvas.removeEventListener('mouseout', stopDrawing);
+                    canvas.removeEventListener('touchstart', startDrawing);
+                    canvas.removeEventListener('touchmove', draw);
+                    canvas.removeEventListener('touchend', stopDrawing);
+                };
+            }, [isActive, color, startDrawing, draw, stopDrawing]);
+
+            const clearCanvas = () => {
+                const canvas = canvasRef.current;
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            };
+
+            if (!isActive) return null;
+
+            return (
+                <React.Fragment>
+                    <canvas ref={canvasRef} className="fixed top-0 left-0 w-screen h-screen z-[100] cursor-crosshair" />
+                    <div className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-white rounded-full p-2 flex gap-2 items-center shadow-lg z-[101] border-2 border-gray-700">
+                        {['#444444', '#F4A599', '#A8BFCE', '#9CAF88'].map(c => (
+                            <div key={c}
+                                onClick={() => setColor(c)}
+                                className={`w-8 h-8 rounded-full cursor-pointer border-2 ${color === c ? 'border-gray-700 scale-110' : 'border-transparent'}`}
+                                style={{ backgroundColor: c }}
+                            />
+                        ))}
+                        <button onClick={clearCanvas} className="font-doodle text-2xl">🗑️</button>
+                        <button onClick={onClose} className="font-doodle text-2xl">✅</button>
+                    </div>
+                </React.Fragment>
+            );
+        };
+
+        const AddPostModal = ({ isOpen, onClose, coupleId, userId }) => {
+            const [caption, setCaption] = useState('');
+            const [imageFile, setImageFile] = useState(null);
+            const [isUploading, setIsUploading] = useState(false);
+            const fileInputRef = useRef(null);
+
+            const handleFileChange = (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    setImageFile(file);
+                }
+            };
+            
+            const handleSubmit = async () => {
+                if (!imageFile || !caption.trim()) {
+                    alert("Please select a photo and write a caption.");
+                    return;
+                }
+                if (!googleDriveManager.accessToken) {
+                    alert("Please connect to Google Drive in the Settings tab first!");
+                    return;
+                }
+
+                setIsUploading(true);
+                try {
+                    const fileId = await googleDriveManager.uploadFile(imageFile, 'photos');
+                    
+                    if (fileId) {
+                        const postsCol = db.collection('couples').doc(coupleId).collection('posts');
+                        await postsCol.add({
+                            userId,
+                            fileId,
+                            caption,
+                            likes: 0,
+                            likedBy: [],
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        handleClose();
+                    } else {
+                        throw new Error("File upload to Google Drive failed or did not return a fileId.");
+                    }
+                } catch (error) {
+                    console.error("Error creating post:", error);
+                    alert("Failed to create post. Check the console for details.");
+                } finally {
+                    setIsUploading(false);
+                }
+            };
+
+            const handleClose = () => {
+                setCaption('');
+                setImageFile(null);
+                if(fileInputRef.current) fileInputRef.current.value = "";
+                onClose();
+            };
+
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[100]">
+                    <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm" style={{backgroundImage: "url('https://www.transparenttextures.com/patterns/lined-paper.png')"}}>
+                        <h2 className="font-header text-5xl text-center mb-4 text-gray-700">Add a Memory</h2>
+                        
+                        <button onClick={() => fileInputRef.current.click()} className="w-full p-4 border-2 border-dashed border-gray-400 rounded-lg text-gray-500 font-doodle text-xl mb-4">
+                            {imageFile ? imageFile.name : "Click to select a photo"}
+                        </button>
+                        <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
+
+                        <textarea
+                            value={caption}
+                            onChange={e => setCaption(e.target.value)}
+                            placeholder="Write a caption..."
+                            className="w-full p-3 bg-transparent border-b-2 border-dashed border-gray-400 font-doodle text-2xl focus:outline-none mb-6"
+                            rows="2"
+                        />
+                        
+                        <div className="flex justify-between">
+                            <button onClick={handleClose} disabled={isUploading} className="font-header text-3xl px-6 py-1 rounded-full">Cancel</button>
+                            <button onClick={handleSubmit} disabled={isUploading} className="font-header text-3xl px-8 py-2 rounded-full text-white bg-[#9CAF88]">
+                                {isUploading ? "Uploading..." : "Post"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        const TheWall = ({ coupleId, userId }) => {
+            const [posts, setPosts] = useState([]);
+            const [isLoading, setIsLoading] = useState(true);
+            const [isModalOpen, setIsModalOpen] = useState(false);
+
+            useEffect(() => {
+                if (!coupleId) return;
+                
+                setIsLoading(true);
+                const postsCol = db.collection('couples').doc(coupleId).collection('posts');
+                const q = postsCol.orderBy('createdAt', 'desc');
+
+                const unsubscribe = q.onSnapshot(snapshot => {
+                    const fetchedPosts = snapshot.docs.map(doc => {
+                        const data = doc.data();
+                        return {
+                            id: doc.id,
+                            ...data,
+                            imageUrl: googleDriveManager.getPublicViewUrl(data.fileId),
+                            date: data.createdAt?.toDate().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                        };
+                    });
+                    setPosts(fetchedPosts);
+                    setIsLoading(false);
+                }, error => {
+                    console.error("Error fetching posts: ", error);
+                    setIsLoading(false);
+                });
+
+                return () => unsubscribe();
+            }, [coupleId]);
+
+            const handleLike = async (postId, likedBy) => {
+                const postRef = db.collection('couples').doc(coupleId).collection('posts').doc(postId);
+                const alreadyLiked = likedBy.includes(userId);
+
+                await postRef.update({
+                    likedBy: alreadyLiked 
+                        ? firebase.firestore.FieldValue.arrayRemove(userId) 
+                        : firebase.firestore.FieldValue.arrayUnion(userId),
+                    likes: firebase.firestore.FieldValue.increment(alreadyLiked ? -1 : 1)
+                });
+            };
+            
+            const handleDelete = async (postId) => {
+                if (window.confirm("Are you sure you want to delete this memory?")) {
+                    await db.collection('couples').doc(coupleId).collection('posts').doc(postId).delete();
+                }
+            };
+
+            return (
+                <div className="app-screen p-4 bg-[#D2B48C]" style={{backgroundImage: "url('https://www.transparenttextures.com/patterns/cork-wallet.png')"}}>
+                    <h1 className="font-header text-5xl text-center mb-8 text-white" style={{textShadow: '2px 2px 4px #444444'}}>Our Wall</h1>
+                    
+                    {isLoading && <p className="text-center text-white font-doodle">Loading memories...</p>}
+                    
+                    {!isLoading && posts.length === 0 && (
+                        <div className="text-center text-white p-10 bg-black/20 rounded-lg">
+                            <p className="font-header text-4xl">Your Wall is Empty</p>
+                            <p className="font-doodle mt-2">Click the "+" button to add your first memory!</p>
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {posts.map(post => (
+                            <div key={post.id} className="relative group">
+                                <div className="bg-white p-4 pb-16 shadow-lg transition-transform duration-300 ease-in-out hover:!rotate-0 hover:scale-105 hover:z-10" style={{ transform: `rotate(${Math.random() * 8 - 4}deg)` }}>
+                                    {post.userId === userId && (
+                                        <button onClick={() => handleDelete(post.id)} className="absolute top-2 right-2 text-xl text-gray-400 hover:text-red-500 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            &times;
+                                        </button>
+                                    )}
+                                    <div className="absolute top-[-10px] left-1/2 -translate-x-1/2 w-5 h-5 bg-[#F4A599] rounded-full border-2 border-[#444] shadow-md"/>
+                                    <img src={post.imageUrl} alt={post.caption} className="w-full h-auto object-cover aspect-square bg-gray-200" />
+                                    <div className="absolute bottom-4 left-4 right-4 text-center">
+                                        <p className="font-handwriting text-2xl text-gray-700">{post.caption}</p>
+                                        <p className="font-doodle text-sm text-gray-500 mt-1">{post.date}</p>
+                                    </div>
+                                    <button onClick={() => handleLike(post.id, post.likedBy)} className="absolute bottom-2 right-2 flex items-center space-x-1 opacity-50 group-hover:opacity-100 transition-opacity">
+                                        <span className={`text-xl transition-colors ${post.likedBy.includes(userId) ? 'text-red-500' : 'text-[#F4A599]'}`}>♥</span>
+                                        <span className="font-doodle text-sm">{post.likes}</span>
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <button onClick={() => setIsModalOpen(true)} className="fixed bottom-24 right-6 bg-[#F4A599] text-white w-16 h-16 rounded-full shadow-lg flex items-center justify-center font-header text-5xl z-50 transition-transform hover:scale-110">
+                        +
+                    </button>
+                    <AddPostModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} coupleId={coupleId} userId={userId} />
+                </div>
+            );
+        };
+
+        const Calendar = ({ coupleId }) => {
+            const [currentDate, setCurrentDate] = useState(new Date());
+            const [events, setEvents] = useState({});
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [selectedEvent, setSelectedEvent] = useState(null);
+            const [viewedEvent, setViewedEvent] = useState(null);
+
+            const [eventTitle, setEventTitle] = useState('');
+            const [eventDescription, setEventDescription] = useState('');
+            const [eventType, setEventType] = useState('anniversary');
+            const [selectedDate, setSelectedDate] = useState(null);
+
+            useEffect(() => {
+                if (!coupleId) return;
+                const eventsCol = db.collection('couples').doc(coupleId).collection('events');
+                const unsubscribe = eventsCol.onSnapshot((snapshot) => {
+                    const newEvents = {};
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        newEvents[data.date] = { id: doc.id, ...data };
+                    });
+                    setEvents(newEvents);
+                });
+                return () => unsubscribe();
+            }, [coupleId]);
+
+            const getSeason = (month) => {
+                if (month >= 2 && month <= 4) return 'spring';
+                if (month >= 5 && month <= 7) return 'summer';
+                if (month >= 8 && month <= 10) return 'fall';
+                return 'winter';
+            };
+            const season = getSeason(currentDate.getMonth());
+            const seasonalThemes = {
+                spring: { bg: '#9CAF88', text: '#6A7F62', accent: '#F4A599' },
+                summer: { bg: '#FAF7F0', text: '#E5874A', accent: '#FFD700' },
+                fall: { bg: '#D3B89E', text: '#8B4513', accent: '#F4A599' },
+                winter: { bg: '#A8BFCE', text: '#465A65', accent: '#FFFFFF' }
+            };
+            const theme = seasonalThemes[season];
+
+            const doodleSVG = {
+                anniversary: `<svg viewBox="0 0 24 24" class="w-full h-full" style="fill: #F4A599;"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path></svg>`,
+                birthday: `<svg viewBox="0 0 24 24" class="w-full h-full" style="fill: #A8BFCE;"><path d="M22 11c0 1.66-1.34 3-3 3h-2v4a2 2 0 01-2 2H7a2 2 0 01-2-2v-4H3c-1.66 0-3-1.34-3-3V9c0-.95.53-1.79 1.3-2.25L12 2l10.7 4.75c.77.46 1.3 1.3 1.3 2.25v2zM7 11h10v-1l-5-2.22L7 10v1z"></path></svg>`,
+                'date-night': `<svg viewBox="0 0 24 24" class="w-full h-full" style="fill: #FFC0CB;"><path d="M12 2l2.35 7.18h7.55l-6.1 4.44 2.35 7.18-6.1-4.44-6.1 4.44 2.35-7.18-6.1-4.44h7.55L12 2z"></path></svg>`,
+                home: `<svg viewBox="0 0 24 24" class="w-full h-full" style="fill: #9CAF88;"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8h5z"></path></svg>`
+            };
+            
+            const openModalForDate = (day) => {
+                const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const existingEvent = events[dateStr];
+                setSelectedDate(dateStr);
+                setSelectedEvent(existingEvent || null);
+                setEventTitle(existingEvent ? existingEvent.title : '');
+                setEventDescription(existingEvent ? existingEvent.description : '');
+                setEventType(existingEvent ? existingEvent.type : 'anniversary');
+                setIsModalOpen(true);
+            };
+            
+            const handleDayClick = (day) => {
+                const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const event = events[dateStr];
+                if (event) {
+                    setViewedEvent(event);
+                } else {
+                    setViewedEvent(null);
+                    openModalForDate(day);
+                }
+            };
+
+            const handleSaveEvent = async () => {
+                if (!eventTitle.trim() || !selectedDate) return;
+                const eventsCol = db.collection('couples').doc(coupleId).collection('events');
+                const eventData = { date: selectedDate, title: eventTitle, description: eventDescription, type: eventType, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
+                
+                if (selectedEvent) {
+                    await eventsCol.doc(selectedEvent.id).set(eventData, { merge: true });
+                } else {
+                    await eventsCol.add(eventData);
+                }
+                setIsModalOpen(false);
+                setViewedEvent(null);
+            };
+            
+            const handleDeleteEvent = async () => {
+                if (selectedEvent && window.confirm("Are you sure you want to delete this event?")) {
+                    await db.collection('couples').doc(coupleId).collection('events').doc(selectedEvent.id).delete();
+                    setIsModalOpen(false);
+                    setViewedEvent(null);
+                }
+            };
+
+            const renderCalendarGrid = () => {
+                const year = currentDate.getFullYear();
+                const month = currentDate.getMonth();
+                const firstDayOfMonth = new Date(year, month, 1).getDay();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const grid = [];
+                for (let i = 0; i < firstDayOfMonth; i++) grid.push(<div key={`empty-${i}`} className="day-cell other-month"></div>);
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    const event = events[dateStr];
+                    const isToday = new Date().toDateString() === new Date(year, month, day).toDateString();
+                    grid.push(
+                        <div key={day} onClick={() => handleDayClick(day)} className={`relative aspect-square border-2 border-dashed rounded-full flex items-center justify-center font-comfortaa text-lg cursor-pointer transition-all active:scale-125 ${isToday || event ? 'border-solid' : ''}`} style={{borderColor: isToday || event ? theme.text : 'rgba(0,0,0,0.1)'}}>
+                            {day}
+                            {event && <div className="absolute w-3/4 h-3/4 opacity-80" dangerouslySetInnerHTML={{ __html: doodleSVG[event.type] }} />}
+                        </div>
+                    );
+                }
+                return grid;
+            };
+            
+            return (
+                <div className="app-screen p-4 flex" style={{ backgroundColor: theme.bg }}>
+                    <div className="flex-grow max-w-2xl mx-auto bg-white p-6 rounded-lg shadow-lg" style={{maskImage: "url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\"><defs><filter id=\"filter\"><feTurbulence type=\"fractalNoise\" baseFrequency=\"0.02\" numOctaves=\"5\" seed=\"10\" /><feDisplacementMap in=\"SourceGraphic\" scale=\"15\" /></filter></defs><rect width=\"100%\" height=\"100%\" filter=\"url(%23filter)\" /></svg>')"}}>
+                        <div className="flex justify-between items-center mb-6" style={{color: theme.text}}>
+                            <span className="text-5xl cursor-pointer" onClick={() => setCurrentDate(d => new Date(d.setMonth(d.getMonth() - 1)))}>‹</span>
+                            <h1 className="font-header text-6xl">{currentDate.toLocaleString('default', { month: 'long' })} {currentDate.getFullYear()}</h1>
+                            <span className="text-5xl cursor-pointer" onClick={() => setCurrentDate(d => new Date(d.setMonth(d.getMonth() + 1)))}>›</span>
+                        </div>
+                        <div className="grid grid-cols-7 gap-2 text-center font-doodle" style={{color: theme.text}}>
+                            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => <div key={day}>{day}</div>)}
+                        </div>
+                        <div className="grid grid-cols-7 gap-2 mt-2">{renderCalendarGrid()}</div>
+                    </div>
+                    
+                    {viewedEvent && (
+                        <div className="w-1/3 ml-4 bg-white/50 p-6 rounded-lg shadow-lg backdrop-blur-sm">
+                            <h2 className="font-header text-4xl" style={{color: theme.text}}>{viewedEvent.title}</h2>
+                            <p className="font-doodle text-lg mt-2">{viewedEvent.description}</p>
+                            <button onClick={() => openModalForDate(new Date(viewedEvent.date + 'T12:00:00').getDate())} className="font-header text-2xl mt-4 bg-white px-4 py-1 rounded-full">Edit</button>
+                        </div>
+                    )}
+
+                    {isModalOpen && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+                            <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm" style={{backgroundImage: "url('https://www.transparenttextures.com/patterns/lined-paper.png')"}}>
+                                <h2 className="font-header text-5xl text-center mb-4" style={{color: theme.text}}>
+                                    {selectedEvent ? 'Edit Memory' : 'Add a Memory'}
+                                </h2>
+                                <input type="text" value={eventTitle} onChange={e => setEventTitle(e.target.value)} placeholder="What's the occasion?" className="w-full p-3 bg-transparent border-b-2 border-dashed border-gray-400 font-doodle text-2xl focus:outline-none mb-4"/>
+                                <textarea value={eventDescription} onChange={e => setEventDescription(e.target.value)} placeholder="Add some details..." className="w-full p-3 bg-transparent border-b-2 border-dashed border-gray-400 font-doodle text-xl focus:outline-none mb-6" rows="3"></textarea>
+                                <div className="flex justify-around mb-8">
+                                    {Object.keys(doodleSVG).map(type => (
+                                        <button key={type} onClick={() => setEventType(type)} className={`w-12 h-12 p-2 rounded-full transition-all ${eventType === type ? 'bg-gray-300 scale-110' : 'bg-gray-100'}`} dangerouslySetInnerHTML={{ __html: doodleSVG[type] }} />
+                                    ))}
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    {selectedEvent && <button onClick={handleDeleteEvent} className="font-header text-2xl text-red-500">Delete</button>}
+                                    <div className="ml-auto">
+                                        <button onClick={() => setIsModalOpen(false)} className="font-header text-3xl px-6 py-1 rounded-full">Cancel</button>
+                                        <button onClick={handleSaveEvent} className="font-header text-3xl px-6 py-1 rounded-full text-white" style={{backgroundColor: theme.text}}>Save</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const DailyTasks = ({ coupleId, userId }) => {
+            const [currentDate, setCurrentDate] = useState(new Date());
+            const [taskPage, setTaskPage] = useState(null);
+            const [isLoading, setIsLoading] = useState(true);
+            const [isHistoryVisible, setIsHistoryVisible] = useState(false);
+            const [completedTasks, setCompletedTasks] = useState([]);
+
+            const getDateString = (date) => date.toISOString().split('T')[0];
+            const currentDateString = getDateString(currentDate);
+
+            useEffect(() => {
+                if (!coupleId) return;
+                setIsLoading(true);
+
+                const taskDocRef = db.collection('couples').doc(coupleId).collection('dailyTasks').doc(currentDateString);
+                
+                const unsubscribe = taskDocRef.onSnapshot(async (docSnap) => {
+                    if (docSnap.exists) {
+                        setTaskPage({ id: docSnap.id, ...docSnap.data() });
+                    } else {
+                        const newPage = {
+                            date: currentDateString,
+                            sharedTasks: [],
+                            userTasks: { [userId]: [] },
+                            completed: false
+                        };
+                        await taskDocRef.set(newPage);
+                        setTaskPage({ id: currentDateString, ...newPage });
+                    }
+                    setIsLoading(false);
+                });
+
+                return () => unsubscribe();
+            }, [coupleId, userId, currentDateString]);
+
+            const updateTasksInDb = async (updatedData) => {
+                const taskDocRef = db.collection('couples').doc(coupleId).collection('dailyTasks').doc(currentDateString);
+                await taskDocRef.update(updatedData);
+            };
+
+            const handleAddTask = (listType, text) => {
+                if (!taskPage || !text.trim()) return;
+                const newTask = { id: Date.now(), text, done: false };
+                let updatedData;
+                if (listType === 'shared') {
+                    updatedData = { sharedTasks: [...taskPage.sharedTasks, newTask] };
+                } else {
+                    const myCurrentTasks = taskPage.userTasks[userId] || [];
+                    updatedData = { userTasks: { ...taskPage.userTasks, [userId]: [...myCurrentTasks, newTask] } };
+                }
+                updateTasksInDb(updatedData);
+            };
+            
+            const handleToggleTask = (listType, taskId) => {
+                if (!taskPage) return;
+                let updatedData;
+                if (listType === 'shared') {
+                    updatedData = { sharedTasks: taskPage.sharedTasks.map(t => t.id === taskId ? { ...t, done: !t.done } : t) };
+                } else {
+                    const myTasks = (taskPage.userTasks[userId] || []).map(t => t.id === taskId ? { ...t, done: !t.done } : t);
+                    updatedData = { userTasks: { ...taskPage.userTasks, [userId]: myTasks } };
+                }
+                updateTasksInDb(updatedData);
+            };
+
+            const handleTearOff = () => {
+                if (window.confirm("Mark all tasks as complete and tear off this page?")) {
+                    updateTasksInDb({ completed: true });
+                }
+            };
+            
+            const showHistory = async () => {
+                const historyQuery = db.collection('couples').doc(coupleId).collection('dailyTasks')
+                    .where('completed', '==', true)
+                    .orderBy('date', 'desc');
+                
+                const snapshot = await historyQuery.get();
+                setCompletedTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                setIsHistoryVisible(true);
+            };
+
+            const changeDay = (amount) => {
+                const newDate = new Date(currentDate);
+                newDate.setDate(newDate.getDate() + amount);
+                setCurrentDate(newDate);
+            };
+
+            const TaskList = ({ tasks = [], onToggle, onAdd, listType }) => {
+                const [showInput, setShowInput] = useState(false);
+                const [inputText, setInputText] = useState('');
+                const handleAdd = () => {
+                    onAdd(listType, inputText);
+                    setInputText('');
+                    setShowInput(false);
+                };
+                return (
+                    <React.Fragment>
+                        <ul className="task-list font-handwriting">
+                            {tasks.map(task => (
+                                <li key={task.id} onClick={() => onToggle(listType, task.id)} className="flex items-center text-2xl cursor-pointer mb-4">
+                                    <div className={`w-7 h-7 border-2 border-gray-700 rounded-md mr-4 flex-shrink-0 transition-all duration-300 ${task.done ? 'bg-[#F4A599] rotate-[360deg] border-[#F4A599]' : ''}`}>
+                                        {task.done && <span className="text-white text-xl flex items-center justify-center">♥</span>}
+                                    </div>
+                                    <span className={task.done ? 'line-through text-gray-400' : ''}>{task.text}</span>
+                                </li>
+                            ))}
+                        </ul>
+                        {showInput ? (
+                            <div className="flex items-center">
+                                <input type="text" value={inputText} onChange={e => setInputText(e.target.value)} onBlur={handleAdd} onKeyPress={e => e.key === 'Enter' && handleAdd()} className="w-full bg-transparent border-b-2 border-dashed border-[#F4A599] font-handwriting text-2xl focus:outline-none" placeholder="New task..." autoFocus />
+                            </div>
+                        ) : (
+                            <button onClick={() => setShowInput(true)} className="font-doodle text-lg text-gray-500 hover:text-black">✏️ Add task</button>
+                        )}
+                    </React.Fragment>
+                );
+            };
+            
+            const myTasks = taskPage?.userTasks?.[userId] || [];
+            const allTasks = [...(taskPage?.sharedTasks || []), ...myTasks];
+            const allTasksCompleted = allTasks.length > 0 && allTasks.every(t => t.done);
+
+            return (
+                <div className="app-screen p-4 bg-[#A8BFCE] flex flex-col justify-center items-center">
+                    <div className="flex justify-between items-center w-full max-w-md mb-4">
+                        <button onClick={() => changeDay(-1)} className="font-header text-4xl text-white">‹ Prev</button>
+                        <button onClick={showHistory} className="font-doodle text-xl bg-white/50 px-4 py-1 rounded-full">View History</button>
+                        <button onClick={() => changeDay(1)} className="font-header text-4xl text-white">Next ›</button>
+                    </div>
+
+                    <div className="relative w-full max-w-md h-[600px]">
+                        {isLoading ? (
+                            <p>Loading...</p>
+                        ) : taskPage && !taskPage.completed ? (
+                            <div className="w-full h-full bg-[#FAF7F0] p-6 rounded-lg shadow-lg flex flex-col" style={{ backgroundImage: "url('https://www.transparenttextures.com/patterns/lined-paper-2.png')"}}>
+                                <div className="page-header text-center border-b-2 border-dashed border-[#9CAF88] pb-2 mb-4">
+                                    <h1 className="font-header text-5xl text-gray-700">{new Date(taskPage.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h1>
+                                </div>
+                                <div className="flex-grow overflow-y-auto">
+                                    <div>
+                                        <h2 className="font-doodle text-2xl mb-2 text-[#9CAF88]">Shared Stuff:</h2>
+                                        <TaskList tasks={taskPage.sharedTasks} onToggle={handleToggleTask} onAdd={handleAddTask} listType="shared" />
+                                    </div>
+                                    <div className="mt-4">
+                                        <h2 className="font-doodle text-2xl mb-2 text-[#A8BFCE]">My Stuff:</h2>
+                                        <TaskList tasks={myTasks} onToggle={handleToggleTask} onAdd={handleAddTask} listType="user" />
+                                    </div>
+                                </div>
+                                {allTasksCompleted && (
+                                    <button onClick={handleTearOff} className="font-header text-2xl bg-[#9CAF88] text-white px-6 py-2 rounded-full self-center mt-4">Tear Off Page</button>
+                                )}
+                            </div>
+                        ) : (
+                             <div className="w-full h-full bg-[#FAF7F0] p-6 rounded-lg shadow-lg flex flex-col justify-center items-center">
+                                <p className="font-header text-3xl">Page completed!</p>
+                             </div>
+                        )}
+                    </div>
+                    
+                    {isHistoryVisible && (
+                        <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-50" onClick={() => setIsHistoryVisible(false)}>
+                            <div className="bg-white p-8 rounded-lg w-full max-w-lg h-3/4 overflow-y-auto">
+                                <h2 className="font-header text-5xl text-center mb-4">Completed Pages</h2>
+                                {completedTasks.map(page => (
+                                    <div key={page.id} className="mb-4 p-4 border rounded-lg">
+                                        <h3 className="font-doodle text-2xl">{new Date(page.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
+                                        <ul>
+                                            {page.sharedTasks.map(t => <li key={t.id} className="line-through">{t.text}</li>)}
+                                            {Object.values(page.userTasks).flat().map(t => <li key={t.id} className="line-through">{t.text}</li>)}
+                                        </ul>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const Chat = ({ coupleId, userId }) => {
+            const [messages, setMessages] = useState([]);
+            const [input, setInput] = useState('');
+            const messagesEndRef = useRef(null);
+            const fileInputRef = useRef(null);
+
+            useEffect(() => {
+                if (!coupleId) return;
+                const messagesCol = db.collection('couples').doc(coupleId).collection('messages');
+                const q = messagesCol.orderBy('createdAt', 'asc');
+                const unsubscribe = q.onSnapshot((snapshot) => {
+                    setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                });
+                return () => unsubscribe();
+            }, [coupleId]);
+
+            useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+            const sendMessage = async () => {
+                if (!input.trim()) return;
+                const messagesCol = db.collection('couples').doc(coupleId).collection('messages');
+                await messagesCol.add({ 
+                    type: 'text',
+                    text: input, 
+                    senderId: userId, 
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp() 
+                });
+                setInput('');
+            };
+            
+            const handleSendMedia = async (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                if (!googleDriveManager.accessToken) {
+                    alert("Please connect to Google Drive in Settings to send media.");
+                    return;
+                }
+
+                const fileId = await googleDriveManager.uploadFile(file, 'chat_media');
+                if (fileId) {
+                    const messagesCol = db.collection('couples').doc(coupleId).collection('messages');
+                    await messagesCol.add({
+                        type: file.type.startsWith('image/') ? 'image' : 'file',
+                        fileId: fileId,
+                        fileName: file.name,
+                        senderId: userId,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+            };
+
+            return (
+                <div className="app-screen flex flex-col h-screen bg-[#FAF7F0]" style={{backgroundImage: "url('https://www.transparenttextures.com/patterns/paper-fibers.png')"}}>
+                    <header className="bg-[#9CAF88] p-4 text-center shadow-md"><h1 className="font-header text-4xl text-white">Love Notes</h1></header>
+                    <main className="flex-grow p-4 overflow-y-auto space-y-4">
+                        {messages.map(msg => (
+                            <div key={msg.id} className={`flex group relative ${msg.senderId === userId ? 'justify-end' : 'justify-start'}`}>
+                                <div className={`p-3 px-5 max-w-[75%] font-handwriting text-xl relative ${msg.senderId === userId ? 'bg-[#A8BFCE] text-white rounded-3xl rounded-br-lg' : 'bg-white rounded-3xl rounded-bl-lg'}`}
+                                    style={{ maskImage: "url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\"><defs><filter id=\"filter\"><feTurbulence type=\"fractalNoise\" baseFrequency=\"0.04\" numOctaves=\"5\" seed=\"20\" /><feDisplacementMap in=\"SourceGraphic\" scale=\"4\" /></filter></defs><rect width=\"100%\" height=\"100%\" filter=\"url(%23filter)\" /></svg>')" }}>
+                                    {msg.type === 'text' && msg.text}
+                                    {msg.type === 'image' && <img src={googleDriveManager.getPublicViewUrl(msg.fileId)} className="max-w-xs rounded-lg" />}
+                                </div>
+                            </div>
+                        ))}
+                        <div ref={messagesEndRef} />
+                    </main>
+                    <footer className="p-4 border-t-2 border-dashed border-[#9CAF88]">
+                        <div className="bg-white rounded-full flex items-center p-2 shadow-inner">
+                            <input type="file" ref={fileInputRef} onChange={handleSendMedia} className="hidden" />
+                            <button onClick={() => fileInputRef.current.click()} className="text-2xl mx-2 transition-transform hover:scale-110">📎</button>
+                            <input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && sendMessage()} className="flex-grow bg-transparent border-none focus:ring-0 px-4 font-comfortaa" placeholder="Type a love note..." />
+                            <button onClick={sendMessage} className="text-3xl transition-transform hover:scale-110 p-2">
+                                <svg className="w-6 h-6 text-gray-600" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"></path></svg>
+                            </button>
+                        </div>
+                    </footer>
+                </div>
+            );
+        };
+
+        const KissJar = ({ coupleId }) => {
+            const [kissCount, setKissCount] = useState(0);
+            const [isDoodling, setIsDoodling] = useState(false);
+            const jarWrapperRef = useRef(null);
+            const MAX_KISSES = 100;
+
+            useEffect(() => {
+                if (!coupleId) return;
+                const coupleDocRef = db.collection('couples').doc(coupleId);
+                const unsubscribe = coupleDocRef.onSnapshot((docSnap) => {
+                    if (docSnap.exists) setKissCount(docSnap.data().kissCount || 0);
+                });
+                return () => unsubscribe();
+            }, [coupleId]);
+
+            const sendKiss = async () => {
+                if (!coupleId) return;
+                await db.collection('couples').doc(coupleId).update({ kissCount: firebase.firestore.FieldValue.increment(1) });
+            };
+            
+            const collectKisses = async () => {
+                if (!coupleId || kissCount === 0) return;
+                await db.collection('couples').doc(coupleId).update({ kissCount: 0 });
+            }
+
+            const fillPercentage = Math.min((kissCount / MAX_KISSES) * 100, 100);
+
+            return (
+                <div className="app-screen bg-[#F4A599] flex flex-col justify-center items-center p-4">
+                    <button onClick={() => setIsDoodling(true)} className="font-doodle text-2xl fixed top-4 right-4 bg-white p-3 rounded-full shadow-lg z-50">✏️</button>
+                    <DoodleCanvas isActive={isDoodling} onClose={() => setIsDoodling(false)} />
+                    <h1 className="font-header text-6xl text-white mb-4" style={{textShadow: '2px 2px 4px rgba(0,0,0,0.2)'}}>Kiss Jar</h1>
+                    <div ref={jarWrapperRef} className="relative w-64 h-80">
+                        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/5 h-[15%] bg-[#9CAF88] border-8 border-[#8a9f7a] rounded-t-2xl" />
+                        <div className="absolute bottom-0 w-full h-[85%] bg-white/50 border-8 border-[#A8BFCE] border-t-0 rounded-b-[45px] backdrop-blur-sm overflow-hidden">
+                            <div className="absolute bottom-0 left-0 w-full bg-pink-300 transition-all duration-500 ease-out" style={{ height: `${fillPercentage}%` }}></div>
+                        </div>
+                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#FAF7F0] p-4 rounded-lg shadow-md border-2 border-dashed border-gray-700">
+                            <span className="font-header text-5xl text-gray-700">{kissCount}</span>
+                            <p className="font-doodle text-gray-500 -mt-2">kisses</p>
+                        </div>
+                    </div>
+                    <div className="mt-8 flex justify-center gap-4 flex-wrap">
+                        <button onClick={sendKiss} className="font-doodle text-xl bg-white border-2 border-gray-700 rounded-2xl px-5 py-2 shadow-[2px_2px_0_#444] active:shadow-none active:translate-y-0.5">☀️ Morning</button>
+                        <button onClick={sendKiss} className="font-doodle text-xl bg-white border-2 border-gray-700 rounded-2xl px-5 py-2 shadow-[2px_2px_0_#444] active:shadow-none active:translate-y-0.5">❤️ Love</button>
+                    </div>
+                    <button onClick={collectKisses} className="mt-6 font-header text-3xl bg-[#A8BFCE] text-white px-8 py-2 rounded-full hover:bg-opacity-90 transition-colors">Collect Kisses!</button>
+                </div>
+            );
+        };
+        
+        const SettingsScreen = ({ coupleId, userId, setCoupleId }) => {
+            const [isConnecting, setIsConnecting] = useState(false);
+            const [connectionStatus, setConnectionStatus] = useState(googleDriveManager.accessToken ? 'Already connected!' : 'Not connected.');
+            const [coupleData, setCoupleData] = useState(null);
+
+            useEffect(() => {
+                const fetchCoupleData = async () => {
+                    const coupleDoc = await db.collection('couples').doc(coupleId).get();
+                    if (coupleDoc.exists) {
+                        setCoupleData(coupleDoc.data());
+                    }
+                };
+                fetchCoupleData();
+            }, [coupleId]);
+            
+            const handleConnectDrive = async () => {
+                setIsConnecting(true);
+                setConnectionStatus('Connecting to Google Drive...');
+                try {
+                    const success = await googleDriveManager.connectDrive();
+                    setConnectionStatus(success ? 'Successfully connected to Google Drive!' : 'Failed to connect.');
+                } catch (error) {
+                    setConnectionStatus('Connection failed or was cancelled.');
+                }
+                setIsConnecting(false);
+            };
+
+            const handleLogout = () => {
+                localStorage.removeItem('googleDriveFolderIds');
+                googleDriveManager.accessToken = null;
+                auth.signOut();
+            };
+
+            const handleRemovePartner = async () => {
+                if (!coupleData || coupleData.members.length < 2) {
+                    alert("There is no partner to remove.");
+                    return;
+                }
+
+                if (window.confirm("Are you sure you want to remove your partner? This will allow you to invite someone new.")) {
+                    try {
+                        const partnerId = coupleData.members.find(id => id !== userId);
+                        const newPairingCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+
+                        await db.collection('couples').doc(coupleId).update({
+                            members: firebase.firestore.FieldValue.arrayRemove(partnerId),
+                            pairingCode: newPairingCode
+                        });
+
+                        await db.collection('users').doc(partnerId).update({
+                            coupleId: null
+                        });
+
+                        alert("Partner removed. You can now invite someone new with the updated pairing code.");
+                        setCoupleData(prev => ({...prev, pairingCode: newPairingCode, members: [userId]}));
+                    } catch (error) {
+                        console.error("Error removing partner:", error);
+                        alert("Failed to remove partner.");
+                    }
+                }
+            };
+
+            return (
+                <div className="app-screen p-4 bg-[#A8BFCE] flex flex-col justify-center items-center">
+                    <h1 className="font-header text-5xl text-white mb-8">Settings</h1>
+                    <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md text-center space-y-6">
+                        <div>
+                            <h2 className="font-doodle text-2xl mb-4">Pairing</h2>
+                            {coupleData?.pairingCode ? (
+                                <div>
+                                    <p className="font-doodle">Share this code with your partner:</p>
+                                    <p className="font-mono text-2xl bg-gray-200 p-2 rounded-md">{coupleData.pairingCode}</p>
+                                </div>
+                            ) : (
+                                <div>
+                                    <p className="font-doodle text-gray-500">Your partner has joined!</p>
+                                    <button onClick={handleRemovePartner} className="mt-2 w-full bg-red-400 text-white font-header text-2xl p-2 rounded-lg">
+                                        Remove Partner
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                        <div>
+                            <h2 className="font-doodle text-2xl mb-4">Google Drive</h2>
+                            <button onClick={handleConnectDrive} disabled={isConnecting || !!googleDriveManager.accessToken} className="w-full bg-[#9CAF88] text-white font-header text-3xl p-2 rounded-lg hover:bg-opacity-90 transition-colors disabled:bg-gray-400">
+                                {isConnecting ? 'Connecting...' : 'Connect Google Drive'}
+                            </button>
+                            {connectionStatus && <p className="mt-4 text-gray-600">{connectionStatus}</p>}
+                        </div>
+                        <div>
+                             <h2 className="font-doodle text-2xl mb-4">Account</h2>
+                             <button onClick={handleLogout} className="w-full bg-[#F4A599] text-white font-header text-3xl p-2 rounded-lg hover:bg-opacity-90 transition-colors">
+                                Logout
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const AuthScreen = () => {
+            const [isLogin, setIsLogin] = useState(true);
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setError('');
+                try {
+                    if (isLogin) {
+                        await auth.signInWithEmailAndPassword(email, password);
+                    } else {
+                        await auth.createUserWithEmailAndPassword(email, password);
+                    }
+                } catch (err) {
+                    setError(err.message);
+                }
+            };
+
+            return (
+                <div className="app-screen bg-[#9CAF88] flex justify-center items-center p-4">
+                    <div className="w-full max-w-sm bg-[#FAF7F0] p-8 rounded-2xl shadow-2xl text-center">
+                        <h1 className="font-header text-6xl mb-2">Serious Studies</h1>
+                        <p className="font-doodle mb-6">Your private scrapbook</p>
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-3 rounded-lg border-2 border-gray-300 focus:border-[#F4A599] focus:ring-0 font-doodle" />
+                            <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-3 rounded-lg border-2 border-gray-300 focus:border-[#F4A599] focus:ring-0 font-doodle" />
+                            <button type="submit" className="w-full bg-[#F4A599] text-white font-header text-3xl p-2 rounded-lg hover:bg-opacity-90 transition-colors">
+                                {isLogin ? 'Log In' : 'Sign Up'}
+                            </button>
+                        </form>
+                        {error && <p className="text-red-500 mt-4 text-sm">{error}</p>}
+                        <button onClick={() => setIsLogin(!isLogin)} className="mt-6 font-doodle text-gray-600 hover:underline">
+                            {isLogin ? "Need an account? Sign Up" : "Have an account? Log In"}
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        const PairingScreen = ({ user, setCoupleId }) => {
+            const [code, setCode] = useState('');
+            const [error, setError] = useState('');
+
+            const createCoupleSpace = async () => {
+                setError('');
+                try {
+                    const newCoupleRef = db.collection('couples').doc();
+                    const newCoupleId = newCoupleRef.id;
+                    const newPairingCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+                    await newCoupleRef.set({ members: [user.uid], pairingCode: newPairingCode, createdAt: firebase.firestore.FieldValue.serverTimestamp(), kissCount: 0 });
+                    await db.collection('users').doc(user.uid).set({ coupleId: newCoupleId }, { merge: true });
+                    setCoupleId(newCoupleId);
+                } catch (err) {
+                    setError("Could not create space. Check Firebase rules.");
+                }
+            };
+
+            const joinCoupleSpace = async () => {
+                setError('');
+                if (!code.trim()) return;
+                try {
+                    const q = db.collection("couples").where("pairingCode", "==", code.toUpperCase());
+                    const querySnapshot = await q.get();
+                    if (querySnapshot.empty) {
+                        setError("Invalid pairing code.");
+                        return;
+                    }
+                    const coupleDoc = querySnapshot.docs[0];
+                    await coupleDoc.ref.update({ members: firebase.firestore.FieldValue.arrayUnion(user.uid), pairingCode: null });
+                    await db.collection('users').doc(user.uid).set({ coupleId: coupleDoc.id }, { merge: true });
+                    setCoupleId(coupleDoc.id);
+                } catch (err) {
+                    setError("Could not join space. Check Firebase rules.");
+                }
+            };
+
+            return (
+                <div className="app-screen bg-[#A8BFCE] flex justify-center items-center p-4">
+                    <div className="w-full max-w-md bg-[#FAF7F0] p-8 rounded-2xl shadow-2xl text-center space-y-6">
+                        <div>
+                            <h2 className="font-header text-5xl mb-2">Create Your Space</h2>
+                            <button onClick={createCoupleSpace} className="w-full mt-4 bg-[#9CAF88] text-white font-header text-3xl p-2 rounded-lg">I'm setting up our gift!</button>
+                        </div>
+                        <div className="font-doodle text-gray-500">OR</div>
+                        <div>
+                            <h2 className="font-header text-5xl mb-2">Join Your Partner</h2>
+                            <input type="text" value={code} onChange={e => setCode(e.target.value)} placeholder="Enter pairing code..." className="w-full p-3 rounded-lg border-2 font-doodle text-center uppercase" />
+                            <button onClick={joinCoupleSpace} className="w-full mt-4 bg-[#F4A599] text-white font-header text-3xl p-2 rounded-lg">Join their space</button>
+                            {error && <p className="text-red-500 mt-2 text-sm">{error}</p>}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- MAIN APP COMPONENT ---
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [coupleId, setCoupleId] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [activeView, setActiveView] = useState('wall');
+
+            useEffect(() => {
+                const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
+                    if (currentUser) {
+                        const userDocRef = db.collection('users').doc(currentUser.uid);
+                        const userDocSnap = await userDocRef.get();
+                        if (userDocSnap.exists && userDocSnap.data().coupleId) {
+                            const currentCoupleId = userDocSnap.data().coupleId;
+                            setCoupleId(currentCoupleId);
+                            googleDriveManager.silentConnect();
+                        }
+                        setUser(currentUser);
+                    } else {
+                        setUser(null);
+                        setCoupleId(null);
+                    }
+                    setLoading(false);
+                });
+                return () => unsubscribe();
+            }, []);
+
+            const NavItem = ({ view, icon, label }) => (
+                <button onClick={() => setActiveView(view)} className={`text-center text-white transition-transform hover:translate-y-[-5px] ${activeView !== view ? 'opacity-70' : ''}`}>
+                    <span className="text-3xl">{icon}</span>
+                    <span className="block text-xs font-doodle">{label}</span>
+                </button>
+            );
+
+            const renderContent = () => {
+                if (loading) return <div className="app-screen flex justify-center items-center"><h1 className="font-header text-4xl animate-pulse">Loading...</h1></div>;
+                if (!user) return <AuthScreen />;
+                if (!coupleId) return <PairingScreen user={user} setCoupleId={setCoupleId} />;
+
+                return (
+                    <React.Fragment>
+                        <div className="relative">
+                            {activeView === 'wall' && <TheWall coupleId={coupleId} userId={user.uid} />}
+                            {activeView === 'calendar' && <Calendar coupleId={coupleId} />}
+                            {activeView === 'tasks' && <DailyTasks coupleId={coupleId} userId={user.uid} />}
+                            {activeView === 'chat' && <Chat coupleId={coupleId} userId={user.uid} />}
+                            {activeView === 'kisses' && <KissJar coupleId={coupleId} />}
+                            {activeView === 'settings' && <SettingsScreen coupleId={coupleId} userId={user.uid} setCoupleId={setCoupleId} />}
+                        </div>
+                        <nav className="fixed bottom-0 left-0 right-0 h-20 bg-[#9CAF88] flex justify-around items-center rounded-t-2xl shadow-lg z-50">
+                            <NavItem view="wall" icon="🖼️" label="Wall" />
+                            <NavItem view="calendar" icon="🗓️" label="Dates" />
+                            <NavItem view="tasks" icon="📝" label="Tasks" />
+                            <NavItem view="chat" icon="💬" label="Chat" />
+                            <NavItem view="kisses" icon="🍯" label="Kisses" />
+                            <NavItem view="settings" icon="⚙️" label="Settings" />
+                        </nav>
+                    </React.Fragment>
+                );
+            };
+
+            return renderContent();
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+
+    </script>
+</body>
+</html>
