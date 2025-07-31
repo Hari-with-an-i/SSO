@@ -111,9 +111,9 @@ class GoogleDriveManager {
             }
 
             async makeFilePublic(fileId) {
+                const PERMISSIONS_API_URL = `https://www.googleapis.com/drive/v3/files/${fileId}/permissions`;
                 try {
-                    const PERMISSIONS_API_URL = `https://www.googleapis.com/drive/v3/files/${fileId}/permissions`;
-                    await fetch(PERMISSIONS_API_URL, {
+                    const response = await fetch(PERMISSIONS_API_URL, {
                         method: 'POST',
                         headers: {
                             Authorization: `Bearer ${this.accessToken}`,
@@ -124,8 +124,14 @@ class GoogleDriveManager {
                             type: 'anyone',
                         }),
                     });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        console.error("Failed to make file public. API Response:", errorData);
+                        throw new Error('Failed to set file permissions.');
+                    }
                 } catch (error) {
-                    console.error("Failed to make file public:", error);
+                    console.error("Error in makeFilePublic:", error);
                 }
             }
 
@@ -157,7 +163,7 @@ class GoogleDriveManager {
                     
                     if (response.ok) {
                         const fileId = data.id;
-                        await this.makeFilePublic(fileId);
+                        await this.makeFilePublic(fileId); // Ensure file is public before returning
                         return fileId;
                     } else {
                         console.error("Google Drive API returned an error:", data);
@@ -170,7 +176,7 @@ class GoogleDriveManager {
             }
 
             getPublicViewUrl(fileId) {
-                return `https://lh3.googleusercontent.com/d/${fileId}`;
+                return `https://drive.google.com/thumbnail?id=${fileId}`;
             }
         }
         const googleDriveManager = new GoogleDriveManager();

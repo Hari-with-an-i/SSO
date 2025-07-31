@@ -20,10 +20,12 @@ const TheWall = ({ coupleId, userId, googleDriveManager }) => {
         const unsubscribe = q.onSnapshot(snapshot => {
             const fetchedPosts = snapshot.docs.map(doc => {
                 const data = doc.data();
+                const imageUrl = googleDriveManager.getPublicViewUrl(data.fileId);
+                console.log(`Image URL for post ${doc.id}: ${imageUrl}`);
                 return {
                     id: doc.id,
                     ...data,
-                    imageUrl: googleDriveManager.getPublicViewUrl(data.fileId),
+                    imageUrl: imageUrl,
                     date: data.createdAt?.toDate().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
                 };
             });
@@ -78,7 +80,7 @@ const TheWall = ({ coupleId, userId, googleDriveManager }) => {
                                 </button>
                             )}
                             <div className="absolute top-[-10px] left-1/2 -translate-x-1/2 w-5 h-5 bg-[#F4A599] rounded-full border-2 border-[#444] shadow-md"/>
-                            <img src={post.imageUrl} alt={post.caption} className="w-full h-auto object-cover aspect-square bg-gray-200" />
+                            <img src={`${post.imageUrl}&t=${new Date().getTime()}`} alt={post.caption} referrerPolicy="no-referrer" className="w-full h-auto object-cover aspect-square bg-gray-200" />
                             <div className="absolute bottom-4 left-4 right-4 text-center">
                                 <p className="font-handwriting text-2xl text-gray-700">{post.caption}</p>
                                 <p className="font-doodle text-sm text-gray-500 mt-1">{post.date}</p>
