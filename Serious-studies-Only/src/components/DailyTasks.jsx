@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/firestore';
 
 const DailyTasks = ({ coupleId, userId }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
@@ -21,11 +23,28 @@ const DailyTasks = ({ coupleId, userId }) => {
             if (docSnap.exists) {
                 setTaskPage({ id: docSnap.id, ...docSnap.data() });
             } else {
+                // -- CARRY OVER LOGIC --
+                const yesterday = new Date(currentDate);
+                yesterday.setDate(yesterday.getDate() - 1);
+                const yesterdayDateString = getDateString(yesterday);
+                
+                const yesterdayDoc = await db.collection('couples').doc(coupleId).collection('dailyTasks').doc(yesterdayDateString).get();
+                
+                let carriedOverShared = [];
+                let carriedOverUser = { [userId]: [] };
+
+                if (yesterdayDoc.exists) {
+                    const yesterdayData = yesterdayDoc.data();
+                    carriedOverShared = yesterdayData.sharedTasks.filter(t => !t.done);
+                    Object.keys(yesterdayData.userTasks).forEach(uid => {
+                        carriedOverUser[uid] = yesterdayData.userTasks[uid].filter(t => !t.done);
+                    });
+                }
+                
                 const newPage = {
                     date: currentDateString,
-                    sharedTasks: [],
-                    userTasks: { [userId]: [] },
-                    completed: false
+                    sharedTasks: carriedOverShared,
+                    userTasks: carriedOverUser,
                 };
                 await taskDocRef.set(newPage);
                 setTaskPage({ id: currentDateString, ...newPage });
@@ -66,20 +85,58 @@ const DailyTasks = ({ coupleId, userId }) => {
         updateTasksInDb(updatedData);
     };
 
-    const handleTearOff = () => {
-        if (window.confirm("Mark all tasks as complete and tear off this page?")) {
-            updateTasksInDb({ completed: true });
+    const handleTearOff = async () => {
+        if (window.confirm("This will archive the current set of tasks and give you a fresh page for today. Continue?")) {
+            const historyCol = db.collection('couples').doc(coupleId).collection('taskHistory');
+            
+            // 1. Archive the current page to the history collection
+            await historyCol.add({
+                date: taskPage.date,
+                sharedTasks: taskPage.sharedTasks,
+                userTasks: taskPage.userTasks,
+                completedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            // 2. Reset the current page's tasks
+            const resetUserTasks = {};
+            if (taskPage.userTasks) {
+                Object.keys(taskPage.userTasks).forEach(uid => {
+                    resetUserTasks[uid] = [];
+                });
+            }
+            await updateTasksInDb({
+                sharedTasks: [],
+                userTasks: resetUserTasks
+            });
         }
     };
     
     const showHistory = async () => {
-        const historyQuery = db.collection('couples').doc(coupleId).collection('dailyTasks')
-            .where('completed', '==', true)
-            .orderBy('date', 'desc');
-        
-        const snapshot = await historyQuery.get();
-        setCompletedTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        setIsHistoryVisible(true);
+        try {
+            const historyQuery = db.collection('couples').doc(coupleId).collection('taskHistory')
+                .orderBy('completedAt', 'desc');
+            
+            const snapshot = await historyQuery.get();
+            setCompletedTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setIsHistoryVisible(true);
+        } catch (error) {
+            console.error("History query failed:", error);
+            alert("Could not load history.");
+        }
+    };
+
+    const handleRestoreTask = async (task, listType, ownerId) => {
+        if (window.confirm(`Restore "${task.text}" to today's tasks?`)) {
+            const restoredTask = { id: Date.now(), text: task.text, done: false };
+            const todayDocRef = db.collection('couples').doc(coupleId).collection('dailyTasks').doc(currentDateString);
+
+            if (listType === 'shared') {
+                await todayDocRef.update({ sharedTasks: firebase.firestore.FieldValue.arrayUnion(restoredTask) });
+            } else {
+                await todayDocRef.update({ [`userTasks.${ownerId}`]: firebase.firestore.FieldValue.arrayUnion(restoredTask) });
+            }
+            alert("Task restored!");
+        }
     };
 
     const changeDay = (amount) => {
@@ -134,7 +191,7 @@ const DailyTasks = ({ coupleId, userId }) => {
             <div className="relative w-full max-w-md h-[600px]">
                 {isLoading ? (
                     <p>Loading...</p>
-                ) : taskPage && !taskPage.completed ? (
+                ) : taskPage ? (
                     <div className="w-full h-full bg-[#FAF7F0] p-6 rounded-lg shadow-lg flex flex-col" style={{ backgroundImage: "url('https://www.transparenttextures.com/patterns/lined-paper-2.png')"}}>
                         <div className="page-header text-center border-b-2 border-dashed border-[#9CAF88] pb-2 mb-4">
                             <h1 className="font-header text-5xl text-gray-700">{new Date(taskPage.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h1>
@@ -155,24 +212,46 @@ const DailyTasks = ({ coupleId, userId }) => {
                     </div>
                 ) : (
                      <div className="w-full h-full bg-[#FAF7F0] p-6 rounded-lg shadow-lg flex flex-col justify-center items-center">
-                        <p className="font-header text-3xl">Page completed!</p>
-                     </div>
+                        <p className="font-header text-3xl">Loading page...</p>
+                       </div>
                 )}
             </div>
             
             {isHistoryVisible && (
                 <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-50" onClick={() => setIsHistoryVisible(false)}>
-                    <div className="bg-white p-8 rounded-lg w-full max-w-lg h-3/4 overflow-y-auto">
-                        <h2 className="font-header text-5xl text-center mb-4">Completed Pages</h2>
-                        {completedTasks.map(page => (
-                            <div key={page.id} className="mb-4 p-4 border rounded-lg">
-                                <h3 className="font-doodle text-2xl">{new Date(page.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
-                                <ul>
-                                    {page.sharedTasks.map(t => <li key={t.id} className="line-through">{t.text}</li>)}
-                                    {Object.values(page.userTasks).flat().map(t => <li key={t.id} className="line-through">{t.text}</li>)}
-                                </ul>
-                            </div>
-                        ))}
+                    <div className="bg-white p-8 rounded-lg w-full max-w-lg h-3/4 flex flex-col" onClick={e => e.stopPropagation()}>
+                        <h2 className="font-header text-5xl text-center mb-4">Archived Pages</h2>
+                        <div className="overflow-y-auto">
+                            {completedTasks.length > 0 ? completedTasks.map(page => (
+                                <div key={page.id} className="mb-4 p-4 border rounded-lg">
+                                    <h3 className="font-doodle text-2xl border-b pb-2 mb-2">{new Date(page.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
+                                    
+                                    {page.sharedTasks.length > 0 && <p className="font-doodle text-lg text-gray-500">Shared:</p>}
+                                    <ul>
+                                        {page.sharedTasks.map(t => (
+                                            <li key={t.id} className="flex justify-between items-center group">
+                                                <span className="line-through">{t.text}</span>
+                                                <button onClick={() => handleRestoreTask(t, 'shared', null)} className="text-sm opacity-0 group-hover:opacity-100 transition-opacity bg-gray-200 px-2 rounded-full">Restore</button>
+                                            </li>
+                                        ))}
+                                    </ul>
+
+                                    {Object.keys(page.userTasks).map(uid => (
+                                        <div key={uid} className="mt-2">
+                                            <p className="font-doodle text-lg text-gray-500">{uid === userId ? "Your Tasks:" : "Partner's Tasks:"}</p>
+                                            <ul>
+                                                {page.userTasks[uid].map(t => (
+                                                    <li key={t.id} className="flex justify-between items-center group">
+                                                        <span className="line-through">{t.text}</span>
+                                                        <button onClick={() => handleRestoreTask(t, 'user', uid)} className="text-sm opacity-0 group-hover:opacity-100 transition-opacity bg-gray-200 px-2 rounded-full">Restore</button>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    ))}
+                                </div>
+                            )) : <p className="text-center font-doodle">No archived pages yet!</p>}
+                        </div>
                     </div>
                 </div>
             )}

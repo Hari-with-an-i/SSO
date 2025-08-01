@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { auth, db } from './firebase';
 import AuthScreen from './components/AuthScreen';
@@ -29,6 +28,9 @@ const App = () => {
                     googleDriveManager.silentConnect().then(success => {
                         if (success) {
                             setIsDriveReady(true);
+                        } else {
+                            // Silently failing is okay, user will be prompted in settings if they try to upload.
+                            setIsDriveReady(true); // Allow app to load even if silent auth fails
                         }
                     });
                 }
@@ -54,8 +56,8 @@ const App = () => {
         if (loading) return <div className="app-screen flex justify-center items-center"><h1 className="font-header text-4xl animate-pulse">Loading...</h1></div>;
         if (!user) return <AuthScreen />;
         if (!coupleId) return <PairingScreen user={user} setCoupleId={setCoupleId} />;
-        if (!isDriveReady) return <div className="app-screen flex justify-center items-center"><h1 className="font-header text-4xl animate-pulse">Connecting to Google Drive...</h1></div>;
-
+        
+        // Let the app render even if drive isn't ready. The components will handle the check.
         return (
             <React.Fragment>
                 <div className="relative">

@@ -3,32 +3,137 @@ import { db } from '../firebase';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/firestore';
 
-const Calendar = ({ coupleId }) => {
+const Calendar = ({ coupleId, userId }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [events, setEvents] = useState({});
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [selectedEvent, setSelectedEvent] = useState(null);
-    const [viewedEvent, setViewedEvent] = useState(null);
-
+    
+    // -- State Changes for the new panel --
+    const [viewedDate, setViewedDate] = useState(null); // The date being viewed in the panel
+    const [eventsForViewedDate, setEventsForViewedDate] = useState([]); // List of events for that date
+    const [eventToEdit, setEventToEdit] = useState(null); // The specific event being edited in the modal
+    
+    // Form state for the modal
     const [eventTitle, setEventTitle] = useState('');
     const [eventDescription, setEventDescription] = useState('');
     const [eventType, setEventType] = useState('anniversary');
-    const [selectedDate, setSelectedDate] = useState(null);
 
     useEffect(() => {
         if (!coupleId) return;
         const eventsCol = db.collection('couples').doc(coupleId).collection('events');
-        const unsubscribe = eventsCol.onSnapshot((snapshot) => {
+        const unsubscribe = eventsCol.orderBy('createdAt', 'asc').onSnapshot((snapshot) => {
             const newEvents = {};
             snapshot.forEach(doc => {
                 const data = doc.data();
-                newEvents[data.date] = { id: doc.id, ...data };
+                if (!newEvents[data.date]) {
+                    newEvents[data.date] = [];
+                }
+                newEvents[data.date].push({ id: doc.id, ...data });
             });
             setEvents(newEvents);
         });
         return () => unsubscribe();
     }, [coupleId]);
+    
+    // -- New: "Add to Tasks" Functionality --
+    const addEventToTasks = async (event) => {
+        if (!coupleId || !event) return;
+        
+        const taskDocRef = db.collection('couples').doc(coupleId).collection('dailyTasks').doc(event.date);
+        const task = { id: Date.now(), text: event.title, done: false };
+        
+        try {
+            await db.runTransaction(async (transaction) => {
+                const taskDoc = await transaction.get(taskDocRef);
+                if (!taskDoc.exists) {
+                    transaction.set(taskDocRef, {
+                        date: event.date,
+                        sharedTasks: [task],
+                        userTasks: { [userId]: [] },
+                        completed: false
+                    });
+                } else {
+                    transaction.update(taskDocRef, {
+                        sharedTasks: firebase.firestore.FieldValue.arrayUnion(task)
+                    });
+                }
+            });
+            alert(`"${event.title}" was added to your tasks for that day!`);
+        } catch (error) {
+            console.error("Error adding event to tasks: ", error);
+            alert("Failed to add event to tasks.");
+        }
+    };
+    
+    const handleDayClick = (day) => {
+        const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayEvents = events[dateStr] || [];
+        
+        setViewedDate(dateStr);
+        setEventsForViewedDate(dayEvents);
+        
+        // If there are no events, immediately open the modal to create one
+        if (dayEvents.length === 0) {
+            openModalForNewEvent(dateStr);
+        }
+    };
 
+    const openModalForNewEvent = (date) => {
+        setEventToEdit(null);
+        setEventTitle('');
+        setEventDescription('');
+        setEventType('anniversary');
+        setViewedDate(date); // Ensure the correct date is set for the new event
+        setIsModalOpen(true);
+    };
+
+    const openModalToEdit = (event) => {
+        setEventToEdit(event);
+        setEventTitle(event.title);
+        setEventDescription(event.description);
+        setEventType(event.type);
+        setViewedDate(event.date);
+        setIsModalOpen(true);
+    };
+
+    const handleSaveEvent = async () => {
+        if (!eventTitle.trim() || !viewedDate) return;
+        const eventsCol = db.collection('couples').doc(coupleId).collection('events');
+        
+        const eventData = { 
+            date: viewedDate, 
+            title: eventTitle, 
+            description: eventDescription, 
+            type: eventType,
+        };
+
+        if (eventToEdit) {
+            // Updating an existing event
+            await eventsCol.doc(eventToEdit.id).set(eventData, { merge: true });
+        } else {
+            // Adding a new event
+            await eventsCol.add({ ...eventData, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+        }
+        
+        // Refresh the side panel with the updated event list
+        const updatedEvents = await eventsCol.where('date', '==', viewedDate).get();
+        setEventsForViewedDate(updatedEvents.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+        setIsModalOpen(false);
+        setEventToEdit(null);
+    };
+    
+    const handleDeleteEvent = async (eventId) => {
+        if (window.confirm("Are you sure you want to delete this event?")) {
+            await db.collection('couples').doc(coupleId).collection('events').doc(eventId).delete();
+            // Filter out the deleted event from the side panel view
+            setEventsForViewedDate(prevEvents => prevEvents.filter(event => event.id !== eventId));
+            setIsModalOpen(false);
+            setEventToEdit(null);
+        }
+    };
+
+    // -- Calendar theming (no changes here) --
     const getSeason = (month) => {
         if (month >= 2 && month <= 4) return 'spring';
         if (month >= 5 && month <= 7) return 'summer';
@@ -43,7 +148,6 @@ const Calendar = ({ coupleId }) => {
         winter: { bg: '#A8BFCE', text: '#465A65', accent: '#FFFFFF' }
     };
     const theme = seasonalThemes[season];
-
     const doodleSVG = {
         anniversary: `<svg viewBox="0 0 24 24" class="w-full h-full" style="fill: #F4A599;"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path></svg>`,
         birthday: `<svg viewBox="0 0 24 24" class="w-full h-full" style="fill: #A8BFCE;"><path d="M22 11c0 1.66-1.34 3-3 3h-2v4a2 2 0 01-2 2H7a2 2 0 01-2-2v-4H3c-1.66 0-3-1.34-3-3V9c0-.95.53-1.79 1.3-2.25L12 2l10.7 4.75c.77.46 1.3 1.3 1.3 2.25v2zM7 11h10v-1l-5-2.22L7 10v1z"></path></svg>`,
@@ -51,50 +155,6 @@ const Calendar = ({ coupleId }) => {
         home: `<svg viewBox="0 0 24 24" class="w-full h-full" style="fill: #9CAF88;"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8h5z"></path></svg>`
     };
     
-    const openModalForDate = (day) => {
-        const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        const existingEvent = events[dateStr];
-        setSelectedDate(dateStr);
-        setSelectedEvent(existingEvent || null);
-        setEventTitle(existingEvent ? existingEvent.title : '');
-        setEventDescription(existingEvent ? existingEvent.description : '');
-        setEventType(existingEvent ? existingEvent.type : 'anniversary');
-        setIsModalOpen(true);
-    };
-    
-    const handleDayClick = (day) => {
-        const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        const event = events[dateStr];
-        if (event) {
-            setViewedEvent(event);
-        } else {
-            setViewedEvent(null);
-            openModalForDate(day);
-        }
-    };
-
-    const handleSaveEvent = async () => {
-        if (!eventTitle.trim() || !selectedDate) return;
-        const eventsCol = db.collection('couples').doc(coupleId).collection('events');
-        const eventData = { date: selectedDate, title: eventTitle, description: eventDescription, type: eventType, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
-        
-        if (selectedEvent) {
-            await eventsCol.doc(selectedEvent.id).set(eventData, { merge: true });
-        } else {
-            await eventsCol.add(eventData);
-        }
-        setIsModalOpen(false);
-        setViewedEvent(null);
-    };
-    
-    const handleDeleteEvent = async () => {
-        if (selectedEvent && window.confirm("Are you sure you want to delete this event?")) {
-            await db.collection('couples').doc(coupleId).collection('events').doc(selectedEvent.id).delete();
-            setIsModalOpen(false);
-            setViewedEvent(null);
-        }
-    };
-
     const renderCalendarGrid = () => {
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth();
@@ -104,12 +164,13 @@ const Calendar = ({ coupleId }) => {
         for (let i = 0; i < firstDayOfMonth; i++) grid.push(<div key={`empty-${i}`} className="day-cell other-month"></div>);
         for (let day = 1; day <= daysInMonth; day++) {
             const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            const event = events[dateStr];
+            const dayEvents = events[dateStr] || [];
             const isToday = new Date().toDateString() === new Date(year, month, day).toDateString();
             grid.push(
-                <div key={day} onClick={() => handleDayClick(day)} className={`relative aspect-square border-2 border-dashed rounded-full flex items-center justify-center font-comfortaa text-lg cursor-pointer transition-all active:scale-125 ${isToday || event ? 'border-solid' : ''}`} style={{borderColor: isToday || event ? theme.text : 'rgba(0,0,0,0.1)'}}>
+                <div key={day} onClick={() => handleDayClick(day)} className={`relative aspect-square border-2 border-dashed rounded-full flex items-center justify-center font-comfortaa text-lg cursor-pointer transition-all active:scale-125 ${isToday || dayEvents.length > 0 ? 'border-solid' : ''}`} style={{borderColor: isToday || dayEvents.length > 0 ? theme.text : 'rgba(0,0,0,0.1)'}}>
                     {day}
-                    {event && <div className="absolute w-3/4 h-3/4 opacity-80" dangerouslySetInnerHTML={{ __html: doodleSVG[event.type] }} />}
+                    {/* Show doodle of the first event */}
+                    {dayEvents.length > 0 && <div className="absolute w-3/4 h-3/4 opacity-80" dangerouslySetInnerHTML={{ __html: doodleSVG[dayEvents[0].type] }} />}
                 </div>
             );
         }
@@ -130,19 +191,34 @@ const Calendar = ({ coupleId }) => {
                 <div className="grid grid-cols-7 gap-2 mt-2">{renderCalendarGrid()}</div>
             </div>
             
-            {viewedEvent && (
-                <div className="w-1/3 ml-4 bg-white/50 p-6 rounded-lg shadow-lg backdrop-blur-sm">
-                    <h2 className="font-header text-4xl" style={{color: theme.text}}>{viewedEvent.title}</h2>
-                    <p className="font-doodle text-lg mt-2">{viewedEvent.description}</p>
-                    <button onClick={() => openModalForDate(new Date(viewedEvent.date + 'T12:00:00').getDate())} className="font-header text-2xl mt-4 bg-white px-4 py-1 rounded-full">Edit</button>
+            {/* -- Updated Side Panel -- */}
+            {eventsForViewedDate.length > 0 && (
+                <div className="w-1/3 ml-4 bg-white/50 p-6 rounded-lg shadow-lg backdrop-blur-sm flex flex-col">
+                    <h2 className="font-header text-4xl mb-4" style={{color: theme.text}}>{new Date(viewedDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}</h2>
+                    <div className="flex-grow space-y-4 overflow-y-auto">
+                        {eventsForViewedDate.map(event => (
+                            <div key={event.id} className="bg-white/50 p-3 rounded-lg">
+                                <h3 className="font-doodle text-xl font-bold">{event.title}</h3>
+                                <p className="font-doodle text-md mt-1">{event.description}</p>
+                                <div className="mt-2 flex gap-2">
+                                    <button onClick={() => openModalToEdit(event)} className="font-header text-lg bg-white px-3 py-0 rounded-full text-xs">Edit</button>
+                                    <button onClick={() => addEventToTasks(event)} className="font-header text-lg bg-white px-3 py-0 rounded-full text-xs">Add to Tasks</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <button onClick={() => openModalForNewEvent(viewedDate)} className="font-header text-2xl mt-4 bg-white px-4 py-1 rounded-full w-full">
+                        + Add Another Event
+                    </button>
                 </div>
             )}
 
+            {/* -- Event Modal (for creating and editing) -- */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
                     <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm" style={{backgroundImage: "url('https://www.transparenttextures.com/patterns/lined-paper.png')"}}>
                         <h2 className="font-header text-5xl text-center mb-4" style={{color: theme.text}}>
-                            {selectedEvent ? 'Edit Memory' : 'Add a Memory'}
+                            {eventToEdit ? 'Edit Memory' : 'Add a Memory'}
                         </h2>
                         <input type="text" value={eventTitle} onChange={e => setEventTitle(e.target.value)} placeholder="What's the occasion?" className="w-full p-3 bg-transparent border-b-2 border-dashed border-gray-400 font-doodle text-2xl focus:outline-none mb-4"/>
                         <textarea value={eventDescription} onChange={e => setEventDescription(e.target.value)} placeholder="Add some details..." className="w-full p-3 bg-transparent border-b-2 border-dashed border-gray-400 font-doodle text-xl focus:outline-none mb-6" rows="3"></textarea>
@@ -152,7 +228,7 @@ const Calendar = ({ coupleId }) => {
                             ))}
                         </div>
                         <div className="flex justify-between items-center">
-                            {selectedEvent && <button onClick={handleDeleteEvent} className="font-header text-2xl text-red-500">Delete</button>}
+                            {eventToEdit && <button onClick={() => handleDeleteEvent(eventToEdit.id)} className="font-header text-2xl text-red-500">Delete</button>}
                             <div className="ml-auto">
                                 <button onClick={() => setIsModalOpen(false)} className="font-header text-3xl px-6 py-1 rounded-full">Cancel</button>
                                 <button onClick={handleSaveEvent} className="font-header text-3xl px-6 py-1 rounded-full text-white" style={{backgroundColor: theme.text}}>Save</button>

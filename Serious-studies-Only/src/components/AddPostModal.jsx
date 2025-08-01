@@ -5,45 +5,54 @@ import 'firebase/compat/firestore';
 import googleDriveManager from '../googleDriveManager';
 
 const AddPostModal = ({ isOpen, onClose, coupleId, userId }) => {
-    const [caption, setCaption] = useState('');
-    const [imageFile, setImageFile] = useState(null);
+    const [postType, setPostType] = useState('photo'); // 'photo', 'video', 'note'
+    const [content, setContent] = useState('');
+    const [mediaFile, setMediaFile] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef(null);
 
     const handleFileChange = (event) => {
         const file = event.target.files[0];
         if (file) {
-            setImageFile(file);
+            setMediaFile(file);
         }
     };
     
     const handleSubmit = async () => {
-        if (!imageFile || !caption.trim()) {
-            alert("Please select a photo and write a caption.");
+        if (postType === 'note' && !content.trim()) {
+            alert("Please write something for your note.");
             return;
         }
-        if (!googleDriveManager.accessToken) {
+        if ((postType === 'photo' || postType === 'video') && (!mediaFile || !content.trim())) {
+            alert(`Please select a ${postType} and write a caption.`);
+            return;
+        }
+        if ((postType === 'photo' || postType === 'video') && !googleDriveManager.accessToken) {
             alert("Please connect to Google Drive in the Settings tab first!");
             return;
         }
 
         setIsUploading(true);
         try {
-            const fileId = await googleDriveManager.uploadFile(imageFile, 'photos');
+            let fileId = null;
+            if (mediaFile && (postType === 'photo' || postType === 'video')) {
+                fileId = await googleDriveManager.uploadFile(mediaFile, 'photos'); 
+            }
             
-            if (fileId) {
+            if (fileId || postType === 'note') {
                 const postsCol = db.collection('couples').doc(coupleId).collection('posts');
                 await postsCol.add({
                     userId,
-                    fileId,
-                    caption,
+                    type: postType,
+                    fileId: fileId,
+                    content,
                     likes: 0,
                     likedBy: [],
                     createdAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
                 handleClose();
             } else {
-                throw new Error("File upload to Google Drive failed or did not return a fileId.");
+                throw new Error("File upload failed or did not return a fileId.");
             }
         } catch (error) {
             console.error("Error creating post:", error);
@@ -54,30 +63,42 @@ const AddPostModal = ({ isOpen, onClose, coupleId, userId }) => {
     };
 
     const handleClose = () => {
-        setCaption('');
-        setImageFile(null);
+        setContent('');
+        setMediaFile(null);
+        setPostType('photo');
         if(fileInputRef.current) fileInputRef.current.value = "";
         onClose();
     };
 
     if (!isOpen) return null;
 
+    const typeButtonClass = (type) => 
+        `font-header text-3xl px-6 py-1 rounded-full transition-colors ${postType === type ? 'bg-[#9CAF88] text-white' : 'bg-gray-200'}`;
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[100]">
             <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm" style={{backgroundImage: "url('https://www.transparenttextures.com/patterns/lined-paper.png')"}}>
                 <h2 className="font-header text-5xl text-center mb-4 text-gray-700">Add a Memory</h2>
+
+                <div className="flex justify-center gap-2 mb-4">
+                    <button onClick={() => setPostType('photo')} className={typeButtonClass('photo')}>Photo</button>
+                    <button onClick={() => setPostType('video')} className={typeButtonClass('video')}>Video</button>
+                    <button onClick={() => setPostType('note')} className={typeButtonClass('note')}>Note</button>
+                </div>
                 
-                <button onClick={() => fileInputRef.current.click()} className="w-full p-4 border-2 border-dashed border-gray-400 rounded-lg text-gray-500 font-doodle text-xl mb-4">
-                    {imageFile ? imageFile.name : "Click to select a photo"}
-                </button>
-                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
+                {(postType === 'photo' || postType === 'video') && (
+                    <button onClick={() => fileInputRef.current.click()} className="w-full p-4 border-2 border-dashed border-gray-400 rounded-lg text-gray-500 font-doodle text-xl mb-4">
+                        {mediaFile ? mediaFile.name : `Click to select a ${postType}`}
+                    </button>
+                )}
+                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept={postType === 'photo' ? "image/*" : "video/*"} className="hidden" />
 
                 <textarea
-                    value={caption}
-                    onChange={e => setCaption(e.target.value)}
-                    placeholder="Write a caption..."
+                    value={content}
+                    onChange={e => setContent(e.target.value)}
+                    placeholder={postType === 'note' ? "Write your note..." : "Write a caption..."}
                     className="w-full p-3 bg-transparent border-b-2 border-dashed border-gray-400 font-doodle text-2xl focus:outline-none mb-6"
-                    rows="2"
+                    rows={postType === 'note' ? 5 : 2}
                 />
                 
                 <div className="flex justify-between">
