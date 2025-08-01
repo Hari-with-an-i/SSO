@@ -4,11 +4,13 @@ import firebase from 'firebase/compat/app';
 import 'firebase/compat/firestore';
 import googleDriveManager from '../googleDriveManager';
 import AddPostModal from './AddPostModal';
+import PhotoModal from './PhotoModal';
 
 const TheWall = ({ coupleId, userId, googleDriveManager }) => {
     const [posts, setPosts] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [selectedPost, setSelectedPost] = useState(null);
 
     useEffect(() => {
         if (!coupleId) return;
@@ -73,9 +75,13 @@ const TheWall = ({ coupleId, userId, googleDriveManager }) => {
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {posts.map(post => (
                     <div key={post.id} className="relative group">
-                        <div className="bg-white p-4 pb-16 shadow-lg transition-transform duration-300 ease-in-out hover:!rotate-0 hover:scale-105 hover:z-10" style={{ transform: `rotate(${Math.random() * 8 - 4}deg)` }}>
+                        <div 
+                            className="bg-white p-4 pb-16 shadow-lg transition-transform duration-300 ease-in-out hover:!rotate-0 hover:scale-105 hover:z-10 cursor-pointer" 
+                            style={{ transform: `rotate(${Math.random() * 8 - 4}deg)` }}
+                            onClick={() => setSelectedPost(post)}
+                        >
                             {post.userId === userId && (
-                                <button onClick={() => handleDelete(post.id)} className="absolute top-2 right-2 text-xl text-gray-400 hover:text-red-500 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={(e) => { e.stopPropagation(); handleDelete(post.id); }} className="absolute top-2 right-2 text-xl text-gray-400 hover:text-red-500 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
                                     &times;
                                 </button>
                             )}
@@ -85,7 +91,7 @@ const TheWall = ({ coupleId, userId, googleDriveManager }) => {
                                 <p className="font-handwriting text-2xl text-gray-700">{post.caption}</p>
                                 <p className="font-doodle text-sm text-gray-500 mt-1">{post.date}</p>
                             </div>
-                            <button onClick={() => handleLike(post.id, post.likedBy)} className="absolute bottom-2 right-2 flex items-center space-x-1 opacity-50 group-hover:opacity-100 transition-opacity">
+                            <button onClick={(e) => { e.stopPropagation(); handleLike(post.id, post.likedBy); }} className="absolute bottom-2 right-2 flex items-center space-x-1 opacity-50 group-hover:opacity-100 transition-opacity">
                                 <span className={`text-xl transition-colors ${post.likedBy.includes(userId) ? 'text-red-500' : 'text-[#F4A599]'}`}>♥</span>
                                 <span className="font-doodle text-sm">{post.likes}</span>
                             </button>
@@ -98,6 +104,8 @@ const TheWall = ({ coupleId, userId, googleDriveManager }) => {
                 +
             </button>
             <AddPostModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} coupleId={coupleId} userId={userId} />
+            
+            <PhotoModal post={selectedPost} onClose={() => setSelectedPost(null)} />
         </div>
     );
 };
