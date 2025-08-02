@@ -10,6 +10,7 @@ const SettingsScreen = ({ coupleId, userId, setCoupleId }) => {
     const [coupleData, setCoupleData] = useState(null);
 
     useEffect(() => {
+        if (!coupleId) return;
         const fetchCoupleData = async () => {
             const coupleDoc = await db.collection('couples').doc(coupleId).get();
             if (coupleDoc.exists) {
@@ -37,32 +38,28 @@ const SettingsScreen = ({ coupleId, userId, setCoupleId }) => {
         auth.signOut();
     };
 
-    const handleRemovePartner = async () => {
-        if (!coupleData || coupleData.members.length < 2) {
-            alert("There is no partner to remove.");
-            return;
-        }
-
-        if (window.confirm("Are you sure you want to remove your partner? This will allow you to invite someone new.")) {
+    const handleLeaveSpace = async () => {
+        const confirmation = prompt("Type 'LEAVE' to confirm leaving your current space. This cannot be undone and is intended for fixing pairing issues.");
+        if (confirmation === 'LEAVE') {
             try {
-                const partnerId = coupleData.members.find(id => id !== userId);
-                const newPairingCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-
-                await db.collection('couples').doc(coupleId).update({
-                    members: firebase.firestore.FieldValue.arrayRemove(partnerId),
-                    pairingCode: newPairingCode
+                const coupleDocRef = db.collection('couples').doc(coupleId);
+                await coupleDocRef.update({
+                    members: firebase.firestore.FieldValue.arrayRemove(userId)
                 });
-
-                await db.collection('users').doc(partnerId).update({
+                
+                const userDocRef = db.collection('users').doc(userId);
+                await userDocRef.update({
                     coupleId: null
                 });
-
-                alert("Partner removed. You can now invite someone new with the updated pairing code.");
-                setCoupleData(prev => ({...prev, pairingCode: newPairingCode, members: [userId]}));
+                
+                setCoupleId(null);
+                
             } catch (error) {
-                console.error("Error removing partner:", error);
-                alert("Failed to remove partner.");
+                console.error("Error leaving space:", error);
+                alert("Failed to leave the space. Please try again.");
             }
+        } else {
+            alert("Action cancelled.");
         }
     };
 
@@ -79,10 +76,7 @@ const SettingsScreen = ({ coupleId, userId, setCoupleId }) => {
                         </div>
                     ) : (
                         <div>
-                            <p className="font-doodle text-gray-500">Your partner has joined!</p>
-                            <button onClick={handleRemovePartner} className="mt-2 w-full bg-red-400 text-white font-header text-2xl p-2 rounded-lg">
-                                Remove Partner
-                            </button>
+                            <p className="font-doodle text-gray-500">You are paired with your partner!</p>
                         </div>
                     )}
                 </div>
@@ -96,8 +90,16 @@ const SettingsScreen = ({ coupleId, userId, setCoupleId }) => {
                 <div>
                      <h2 className="font-doodle text-2xl mb-4">Account</h2>
                      <button onClick={handleLogout} className="w-full bg-[#F4A599] text-white font-header text-3xl p-2 rounded-lg hover:bg-opacity-90 transition-colors">
-                        Logout
-                    </button>
+                         Logout
+                     </button>
+                     <div className="mt-4">
+                        <button onClick={handleLeaveSpace} className="w-full bg-gray-600 text-white font-header text-2xl p-2 rounded-lg hover:bg-gray-700 transition-colors">
+                            Leave Space & Re-pair
+                        </button>
+                        <p className="text-xs text-gray-500 font-doodle mt-2">
+                            Use this if you and your partner accidentally created separate spaces. This will let you join your partner's space using their code.
+                        </p>
+                     </div>
                 </div>
             </div>
         </div>

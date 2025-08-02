@@ -1,14 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { auth, db } from './firebase';
 import AuthScreen from './components/AuthScreen';
 import PairingScreen from './components/PairingScreen';
-import TheWall from './components/TheWall';
-import Calendar from './components/Calendar';
-import DailyTasks from './components/DailyTasks';
-import Chat from './components/Chat';
-import KissJar from './components/KissJar';
-import SettingsScreen from './components/SettingsScreen';
 import googleDriveManager from './googleDriveManager';
+
+// Lazy load the main components
+const TheWall = React.lazy(() => import('./components/TheWall'));
+const Calendar = React.lazy(() => import('./components/Calendar'));
+const DailyTasks = React.lazy(() => import('./components/DailyTasks'));
+const Chat = React.lazy(() => import('./components/Chat'));
+const KissJar = React.lazy(() => import('./components/KissJar'));
+const SettingsScreen = React.lazy(() => import('./components/SettingsScreen'));
+
+const LoadingFallback = () => (
+    <div className="app-screen flex justify-center items-center">
+        <h1 className="font-header text-4xl animate-pulse">Loading...</h1>
+    </div>
+);
 
 const App = () => {
     const [user, setUser] = useState(null);
@@ -26,13 +34,10 @@ const App = () => {
                     const currentCoupleId = userDocSnap.data().coupleId;
                     setCoupleId(currentCoupleId);
                     googleDriveManager.silentConnect().then(success => {
-                        if (success) {
-                            setIsDriveReady(true);
-                        } else {
-                            // Silently failing is okay, user will be prompted in settings if they try to upload.
-                            setIsDriveReady(true); // Allow app to load even if silent auth fails
-                        }
+                        setIsDriveReady(true);
                     });
+                } else {
+                    setCoupleId(null);
                 }
                 setUser(currentUser);
             } else {
@@ -53,21 +58,22 @@ const App = () => {
     );
 
     const renderContent = () => {
-        if (loading) return <div className="app-screen flex justify-center items-center"><h1 className="font-header text-4xl animate-pulse">Loading...</h1></div>;
+        if (loading) return <LoadingFallback />;
         if (!user) return <AuthScreen />;
         if (!coupleId) return <PairingScreen user={user} setCoupleId={setCoupleId} />;
         
-        // Let the app render even if drive isn't ready. The components will handle the check.
         return (
             <React.Fragment>
-                <div className="relative">
-                    {activeView === 'wall' && <TheWall coupleId={coupleId} userId={user.uid} googleDriveManager={googleDriveManager} />}
-                    {activeView === 'calendar' && <Calendar coupleId={coupleId} />}
-                    {activeView === 'tasks' && <DailyTasks coupleId={coupleId} userId={user.uid} />}
-                    {activeView === 'chat' && <Chat coupleId={coupleId} userId={user.uid} />}
-                    {activeView === 'kisses' && <KissJar coupleId={coupleId} />}
-                    {activeView === 'settings' && <SettingsScreen coupleId={coupleId} userId={user.uid} setCoupleId={setCoupleId} />}
-                </div>
+                <Suspense fallback={<LoadingFallback />}>
+                    <div className="relative">
+                        {activeView === 'wall' && <TheWall coupleId={coupleId} userId={user.uid} googleDriveManager={googleDriveManager} />}
+                        {activeView === 'calendar' && <Calendar coupleId={coupleId} userId={user.uid} />}
+                        {activeView === 'tasks' && <DailyTasks coupleId={coupleId} userId={user.uid} />}
+                        {activeView === 'chat' && <Chat coupleId={coupleId} userId={user.uid} googleDriveManager={googleDriveManager} />}
+                        {activeView === 'kisses' && <KissJar coupleId={coupleId} userId={user.uid} />}
+                        {activeView === 'settings' && <SettingsScreen coupleId={coupleId} userId={user.uid} setCoupleId={setCoupleId} />}
+                    </div>
+                </Suspense>
                 <nav className="fixed bottom-0 left-0 right-0 h-20 bg-[#9CAF88] flex justify-around items-center rounded-t-2xl shadow-lg z-50">
                     <NavItem view="wall" icon="🖼️" label="Wall" />
                     <NavItem view="calendar" icon="🗓️" label="Dates" />

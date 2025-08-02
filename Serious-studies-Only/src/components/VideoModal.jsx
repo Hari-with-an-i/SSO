@@ -51,7 +51,6 @@ const VideoModal = ({ post, onClose, googleDriveManager }) => {
 
         return () => {
             isMounted = false;
-            // Revoke the object URL to free up memory when the component unmounts
             if (objectUrl) {
                 URL.revokeObjectURL(objectUrl);
             }
@@ -86,7 +85,7 @@ const VideoModal = ({ post, onClose, googleDriveManager }) => {
             <div className="bg-white p-4 rounded-lg max-w-4xl w-auto max-h-[95vh] flex flex-col items-center justify-center" onClick={e => e.stopPropagation()}>
                 {renderContent()}
                 <div className="text-center mt-2 flex-shrink-0">
-                    <p className="font-handwriting text-2xl text-gray-700">{post.content}</p>
+                    <p className="font-handwriting text-2xl text-gray-700">{post.content || post.fileName}</p>
                     <p className="font-doodle text-sm text-gray-500 mt-1">{post.date}</p>
                 </div>
             </div>

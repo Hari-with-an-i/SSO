@@ -7,6 +7,107 @@ import AddPostModal from './AddPostModal';
 import PhotoModal from './PhotoModal';
 import VideoModal from './VideoModal';
 
+// This sub-component now handles a "processing" state.
+const PostCard = ({ post, userId, onPostClick, onDelete, onLike }) => {
+    // The ready state determines if the 'Processing' overlay is shown.
+    const [isReady, setIsReady] = useState(post.type !== 'video' && post.type !== 'photo');
+    const [hasLoadError, setHasLoadError] = useState(false);
+    const isOwner = post.userId === userId;
+
+    const handleMediaLoad = () => {
+        setIsReady(true);
+    };
+
+    const handleMediaError = () => {
+        setHasLoadError(true);
+        setIsReady(true); // Stop loading and show an error state if needed.
+    };
+
+    const LikeButton = () => (
+        <button onClick={(e) => { e.stopPropagation(); onLike(post.id, post.likedBy); }} className="flex items-center space-x-1 text-gray-400">
+            <span className={`text-xl transition-colors ${post.likedBy.includes(userId) ? 'text-red-500' : 'text-gray-400 hover:text-red-400'}`}>♥</span>
+            <span className="font-doodle text-sm">{post.likes}</span>
+        </button>
+    );
+
+    const commonWrapperStyle = { transform: `rotate(${Math.random() * 6 - 3}deg)` };
+
+    if (post.type === 'note') {
+        const getNoteFontSizeClass = (textLength) => {
+            if (textLength < 25) return 'text-4xl';
+            if (textLength < 75) return 'text-3xl';
+            if (textLength < 150) return 'text-2xl';
+            return 'text-xl';
+        };
+        const fontSizeClass = getNoteFontSizeClass(post.content.length);
+
+        return (
+            <div style={commonWrapperStyle}>
+                <div className="bg-yellow-200 p-4 aspect-square flex flex-col shadow-lg relative group">
+                    {isOwner && (
+                        <button onClick={(e) => { e.stopPropagation(); onDelete(post.id); }} className="absolute top-2 right-2 text-xl text-gray-400 hover:text-red-500 z-20 opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
+                    )}
+                    <div className="flex-grow flex justify-center items-center overflow-hidden">
+                        <p className={`font-handwriting text-gray-800 break-words text-center ${fontSizeClass}`}>{post.content}</p>
+                    </div>
+                    <div className="flex justify-between items-end pt-2">
+                        <p className="font-doodle text-sm text-gray-500">{post.date}</p>
+                        <LikeButton />
+                    </div>
+                </div>
+            </div>
+        );
+    }
+    
+    // Media Post (Photo or Video)
+    return (
+        <div style={commonWrapperStyle} onClick={isReady && !hasLoadError ? () => onPostClick(post) : undefined} className={isReady ? "cursor-pointer" : "cursor-wait"}>
+            <div className="bg-white p-2 shadow-lg flex flex-col group relative">
+                <div className="absolute top-[-10px] left-1/2 -translate-x-1/2 w-5 h-5 bg-[#F4A599] rounded-full border-2 border-white shadow-md z-10"/>
+                {isOwner && (
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(post.id); }} className="absolute top-2 right-2 text-xl text-gray-400 hover:text-red-500 z-20 opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
+                )}
+                <div className="relative aspect-square w-full bg-gray-200">
+                    <img 
+                        src={post.imageUrl} 
+                        alt={post.content} 
+                        referrerPolicy="no-referrer" 
+                        className={`w-full h-full object-cover transition-opacity duration-300 ${isReady ? 'opacity-100' : 'opacity-0'}`} 
+                        onLoad={handleMediaLoad}
+                        onError={handleMediaError}
+                    />
+
+                    {!isReady && (
+                        <div className="absolute inset-0 bg-black bg-opacity-40 flex flex-col justify-center items-center text-white font-doodle">
+                           <p>Processing...</p>
+                        </div>
+                    )}
+                    
+                    {isReady && !hasLoadError && post.type === 'video' && (
+                        <div className="absolute inset-0 bg-black bg-opacity-30 flex justify-center items-center pointer-events-none">
+                            <svg className="w-12 h-12 text-white opacity-80" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 0111 8v4a1 1 0 01-1.445.894l-3-2a1 1 0 010-1.788l3-2z"></path></svg>
+                        </div>
+                    )}
+                    
+                    {hasLoadError && (
+                        <div className="absolute inset-0 bg-gray-100 flex justify-center items-center">
+                            <p className="font-doodle text-red-500">Error loading media</p>
+                        </div>
+                    )}
+                </div>
+                <div className="p-3 flex flex-col justify-between flex-grow">
+                    <p className="font-handwriting text-2xl text-gray-700 break-words">{post.content}</p>
+                    <div className="flex justify-between items-center mt-2">
+                        <p className="font-doodle text-sm text-gray-500">{post.date}</p>
+                        <LikeButton />
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
 const TheWall = ({ coupleId, userId, googleDriveManager }) => {
     const [posts, setPosts] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -38,7 +139,7 @@ const TheWall = ({ coupleId, userId, googleDriveManager }) => {
         });
 
         return () => unsubscribe();
-    }, [coupleId]);
+    }, [coupleId, googleDriveManager]);
 
     const handleLike = async (postId, likedBy) => {
         const postRef = db.collection('couples').doc(coupleId).collection('posts').doc(postId);
@@ -57,73 +158,6 @@ const TheWall = ({ coupleId, userId, googleDriveManager }) => {
         }
     };
 
-    const renderPost = (post) => {
-        const isOwner = post.userId === userId;
-        const commonWrapperStyle = { transform: `rotate(${Math.random() * 6 - 3}deg)` };
-
-        const LikeButton = () => (
-            <button onClick={(e) => { e.stopPropagation(); handleLike(post.id, post.likedBy); }} className="flex items-center space-x-1 text-gray-400">
-                <span className={`text-xl transition-colors ${post.likedBy.includes(userId) ? 'text-red-500' : 'text-gray-400 hover:text-red-400'}`}>♥</span>
-                <span className="font-doodle text-sm">{post.likes}</span>
-            </button>
-        );
-
-        if (post.type === 'note') {
-            const getNoteFontSizeClass = (textLength) => {
-                if (textLength < 25) return 'text-4xl';
-                if (textLength < 75) return 'text-3xl';
-                if (textLength < 150) return 'text-2xl';
-                return 'text-xl';
-            };
-        
-            const fontSizeClass = getNoteFontSizeClass(post.content.length);
-
-            return (
-                <div style={commonWrapperStyle}>
-                    <div className="bg-yellow-200 p-4 aspect-square flex flex-col shadow-lg relative group">
-                        {isOwner && (
-                            <button onClick={() => handleDelete(post.id)} className="absolute top-2 right-2 text-xl text-gray-400 hover:text-red-500 z-20 opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
-                        )}
-                        <div className="flex-grow flex justify-center items-center overflow-hidden">
-                            <p className={`font-handwriting text-gray-800 break-words text-center ${fontSizeClass}`}>{post.content}</p>
-                        </div>
-                        <div className="flex justify-between items-end pt-2">
-                            <p className="font-doodle text-sm text-gray-500">{post.date}</p>
-                            <LikeButton />
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-
-        // Default to photo/video card
-        return (
-            <div style={commonWrapperStyle} onClick={() => setSelectedPost(post)} className="cursor-pointer">
-                <div className="bg-white p-2 shadow-lg flex flex-col group relative">
-                    <div className="absolute top-[-10px] left-1/2 -translate-x-1/2 w-5 h-5 bg-[#F4A599] rounded-full border-2 border-white shadow-md z-10"/>
-                    {isOwner && (
-                        <button onClick={(e) => { e.stopPropagation(); handleDelete(post.id); }} className="absolute top-2 right-2 text-xl text-gray-400 hover:text-red-500 z-20 opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
-                    )}
-                    <div className="relative aspect-square w-full bg-gray-200">
-                        <img src={post.imageUrl} alt={post.content} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                        {post.type === 'video' && (
-                            <div className="absolute inset-0 bg-black bg-opacity-30 flex justify-center items-center pointer-events-none">
-                                <svg className="w-12 h-12 text-white opacity-80" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 0111 8v4a1 1 0 01-1.445.894l-3-2a1 1 0 010-1.788l3-2z"></path></svg>
-                            </div>
-                        )}
-                    </div>
-                    <div className="p-3 flex flex-col justify-between flex-grow">
-                        <p className="font-handwriting text-2xl text-gray-700 break-words">{post.content}</p>
-                        <div className="flex justify-between items-center mt-2">
-                            <p className="font-doodle text-sm text-gray-500">{post.date}</p>
-                            <LikeButton />
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
-    };
-
     return (
         <div className="app-screen p-4 bg-[#D2B48C]" style={{backgroundImage: "url('https://www.transparenttextures.com/patterns/cork-wallet.png')"}}>
             <h1 className="font-header text-5xl text-center mb-8 text-white" style={{textShadow: '2px 2px 4px #444444'}}>Our Wall</h1>
@@ -138,7 +172,16 @@ const TheWall = ({ coupleId, userId, googleDriveManager }) => {
             )}
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-20">
-                {posts.map(post => <div key={post.id}>{renderPost(post)}</div>)}
+                {posts.map(post => (
+                    <PostCard 
+                        key={post.id} 
+                        post={post}
+                        userId={userId}
+                        onPostClick={setSelectedPost}
+                        onDelete={handleDelete}
+                        onLike={handleLike}
+                    />
+                ))}
             </div>
 
             <button onClick={() => setIsAddModalOpen(true)} className="fixed bottom-24 right-6 bg-[#F4A599] text-white w-16 h-16 rounded-full shadow-lg flex items-center justify-center font-header text-5xl z-50 transition-transform hover:scale-110">
@@ -152,8 +195,7 @@ const TheWall = ({ coupleId, userId, googleDriveManager }) => {
             {selectedPost && selectedPost.type === 'video' && (
                 <VideoModal 
                     post={selectedPost} 
-                    onClose={() => setSelectedPost(null)} 
-                    googleDriveManager={googleDriveManager} 
+                    onClose={() => setSelectedPost(null)}
                 />
             )}
         </div>
