@@ -7,13 +7,9 @@ const Calendar = ({ coupleId, userId }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [events, setEvents] = useState({});
     const [isModalOpen, setIsModalOpen] = useState(false);
-    
-    // -- State Changes for the new panel --
-    const [viewedDate, setViewedDate] = useState(null); // The date being viewed in the panel
-    const [eventsForViewedDate, setEventsForViewedDate] = useState([]); // List of events for that date
-    const [eventToEdit, setEventToEdit] = useState(null); // The specific event being edited in the modal
-    
-    // Form state for the modal
+    const [viewedDate, setViewedDate] = useState(null);
+    const [eventsForViewedDate, setEventsForViewedDate] = useState([]);
+    const [eventToEdit, setEventToEdit] = useState(null);
     const [eventTitle, setEventTitle] = useState('');
     const [eventDescription, setEventDescription] = useState('');
     const [eventType, setEventType] = useState('anniversary');
@@ -35,7 +31,6 @@ const Calendar = ({ coupleId, userId }) => {
         return () => unsubscribe();
     }, [coupleId]);
     
-    // -- New: "Add to Tasks" Functionality --
     const addEventToTasks = async (event) => {
         if (!coupleId || !event) return;
         
@@ -50,7 +45,6 @@ const Calendar = ({ coupleId, userId }) => {
                         date: event.date,
                         sharedTasks: [task],
                         userTasks: { [userId]: [] },
-                        completed: false
                     });
                 } else {
                     transaction.update(taskDocRef, {
@@ -72,7 +66,6 @@ const Calendar = ({ coupleId, userId }) => {
         setViewedDate(dateStr);
         setEventsForViewedDate(dayEvents);
         
-        // If there are no events, immediately open the modal to create one
         if (dayEvents.length === 0) {
             openModalForNewEvent(dateStr);
         }
@@ -83,7 +76,7 @@ const Calendar = ({ coupleId, userId }) => {
         setEventTitle('');
         setEventDescription('');
         setEventType('anniversary');
-        setViewedDate(date); // Ensure the correct date is set for the new event
+        setViewedDate(date);
         setIsModalOpen(true);
     };
 
@@ -108,14 +101,11 @@ const Calendar = ({ coupleId, userId }) => {
         };
 
         if (eventToEdit) {
-            // Updating an existing event
             await eventsCol.doc(eventToEdit.id).set(eventData, { merge: true });
         } else {
-            // Adding a new event
             await eventsCol.add({ ...eventData, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
         }
         
-        // Refresh the side panel with the updated event list
         const updatedEvents = await eventsCol.where('date', '==', viewedDate).get();
         setEventsForViewedDate(updatedEvents.docs.map(doc => ({ id: doc.id, ...doc.data() })));
 
@@ -126,14 +116,12 @@ const Calendar = ({ coupleId, userId }) => {
     const handleDeleteEvent = async (eventId) => {
         if (window.confirm("Are you sure you want to delete this event?")) {
             await db.collection('couples').doc(coupleId).collection('events').doc(eventId).delete();
-            // Filter out the deleted event from the side panel view
             setEventsForViewedDate(prevEvents => prevEvents.filter(event => event.id !== eventId));
             setIsModalOpen(false);
             setEventToEdit(null);
         }
     };
 
-    // -- Calendar theming (no changes here) --
     const getSeason = (month) => {
         if (month >= 2 && month <= 4) return 'spring';
         if (month >= 5 && month <= 7) return 'summer';
@@ -166,10 +154,10 @@ const Calendar = ({ coupleId, userId }) => {
             const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const dayEvents = events[dateStr] || [];
             const isToday = new Date().toDateString() === new Date(year, month, day).toDateString();
+            const borderClass = isToday || dayEvents.length > 0 ? 'border-solid border-gray-500' : 'border-gray-200';
             grid.push(
-                <div key={day} onClick={() => handleDayClick(day)} className={`relative aspect-square border-2 border-dashed rounded-full flex items-center justify-center font-comfortaa text-lg cursor-pointer transition-all active:scale-125 ${isToday || dayEvents.length > 0 ? 'border-solid' : ''}`} style={{borderColor: isToday || dayEvents.length > 0 ? theme.text : 'rgba(0,0,0,0.1)'}}>
+                <div key={day} onClick={() => handleDayClick(day)} className={`relative aspect-square border-2 border-dashed rounded-full flex items-center justify-center font-comfortaa text-lg cursor-pointer transition-all active:scale-125 text-gray-700 ${borderClass}`}>
                     {day}
-                    {/* Show doodle of the first event */}
                     {dayEvents.length > 0 && <div className="absolute w-3/4 h-3/4 opacity-80" dangerouslySetInnerHTML={{ __html: doodleSVG[dayEvents[0].type] }} />}
                 </div>
             );
@@ -178,42 +166,40 @@ const Calendar = ({ coupleId, userId }) => {
     };
     
     return (
-        <div className="app-screen p-4 flex" style={{ backgroundColor: theme.bg }}>
-            <div className="flex-grow max-w-2xl mx-auto bg-white p-6 rounded-lg shadow-lg" style={{maskImage: "url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\"><defs><filter id=\"filter\"><feTurbulence type=\"fractalNoise\" baseFrequency=\"0.02\" numOctaves=\"5\" seed=\"10\" /><feDisplacementMap in=\"SourceGraphic\" scale=\"15\" /></filter></defs><rect width=\"100%\" height=\"100%\" filter=\"url(%23filter)\" /></svg>')"}}>
-                <div className="flex justify-between items-center mb-6" style={{color: theme.text}}>
+        <div className="app-screen p-4 flex flex-col" style={{ backgroundColor: theme.bg }}>
+            <div className="w-full max-w-2xl mx-auto bg-white p-6 rounded-lg shadow-lg" style={{maskImage: "url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\"><defs><filter id=\"filter\"><feTurbulence type=\"fractalNoise\" baseFrequency=\"0.02\" numOctaves=\"5\" seed=\"10\" /><feDisplacementMap in=\"SourceGraphic\" scale=\"15\" /></filter></defs><rect width=\"100%\" height=\"100%\" filter=\"url(%23filter)\" /></svg>')"}}>
+                <div className="flex justify-between items-center mb-6 text-gray-800">
                     <span className="text-5xl cursor-pointer" onClick={() => setCurrentDate(d => new Date(d.setMonth(d.getMonth() - 1)))}>‹</span>
                     <h1 className="font-header text-6xl">{currentDate.toLocaleString('default', { month: 'long' })} {currentDate.getFullYear()}</h1>
                     <span className="text-5xl cursor-pointer" onClick={() => setCurrentDate(d => new Date(d.setMonth(d.getMonth() + 1)))}>›</span>
                 </div>
-                <div className="grid grid-cols-7 gap-2 text-center font-doodle" style={{color: theme.text}}>
+                <div className="grid grid-cols-7 gap-2 text-center font-doodle text-gray-600">
                     {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => <div key={day}>{day}</div>)}
                 </div>
                 <div className="grid grid-cols-7 gap-2 mt-2">{renderCalendarGrid()}</div>
             </div>
             
-            {/* -- Updated Side Panel -- */}
             {eventsForViewedDate.length > 0 && (
-                <div className="w-1/3 ml-4 bg-white/50 p-6 rounded-lg shadow-lg backdrop-blur-sm flex flex-col">
-                    <h2 className="font-header text-4xl mb-4" style={{color: theme.text}}>{new Date(viewedDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}</h2>
+                <div className="w-full max-w-2xl mx-auto mt-4 bg-white/50 p-6 rounded-lg shadow-lg backdrop-blur-sm flex flex-col">
+                    <h2 className="font-header text-4xl mb-4 text-gray-800">{new Date(viewedDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}</h2>
                     <div className="flex-grow space-y-4 overflow-y-auto">
                         {eventsForViewedDate.map(event => (
                             <div key={event.id} className="bg-white/50 p-3 rounded-lg">
-                                <h3 className="font-doodle text-xl font-bold">{event.title}</h3>
-                                <p className="font-doodle text-md mt-1">{event.description}</p>
+                                <h3 className="font-doodle text-xl font-bold text-gray-800">{event.title}</h3>
+                                <p className="font-doodle text-md mt-1 text-gray-700">{event.description}</p>
                                 <div className="mt-2 flex gap-2">
-                                    <button onClick={() => openModalToEdit(event)} className="font-header text-lg bg-white px-3 py-0 rounded-full text-xs">Edit</button>
-                                    <button onClick={() => addEventToTasks(event)} className="font-header text-lg bg-white px-3 py-0 rounded-full text-xs">Add to Tasks</button>
+                                    <button onClick={() => openModalToEdit(event)} className="font-header text-lg bg-white px-3 py-0 rounded-full text-xs text-gray-700">Edit</button>
+                                    <button onClick={() => addEventToTasks(event)} className="font-header text-lg bg-white px-3 py-0 rounded-full text-xs text-gray-700">Add to Tasks</button>
                                 </div>
                             </div>
                         ))}
                     </div>
-                    <button onClick={() => openModalForNewEvent(viewedDate)} className="font-header text-2xl mt-4 bg-white px-4 py-1 rounded-full w-full">
+                    <button onClick={() => openModalForNewEvent(viewedDate)} className="font-header text-2xl mt-4 bg-white px-4 py-1 rounded-full w-full text-gray-800">
                         + Add Another Event
                     </button>
                 </div>
             )}
 
-            {/* -- Event Modal (for creating and editing) -- */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
                     <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm" style={{backgroundImage: "url('https://www.transparenttextures.com/patterns/lined-paper.png')"}}>

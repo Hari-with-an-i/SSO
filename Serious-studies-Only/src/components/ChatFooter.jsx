@@ -6,8 +6,11 @@ const ChatFooter = ({ onSendMessage, onSendFile, onStartRecording, onCancelRecor
     const [input, setInput] = useState('');
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+    
+    // Create separate refs for each file input type
     const galleryInputRef = useRef(null);
-    const cameraInputRef = useRef(null);
+    const cameraImageInputRef = useRef(null);
+    const cameraVideoInputRef = useRef(null);
 
     const handleSend = () => {
         if (input.trim() || replyingTo) {
@@ -44,8 +47,8 @@ const ChatFooter = ({ onSendMessage, onSendFile, onStartRecording, onCancelRecor
                 <button onClick={onCancelRecording} className="text-3xl text-red-500 p-2 flex-shrink-0">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                 </button>
-                <div className="flex-grow text-center">
-                    <span className="font-doodle text-red-500 animate-pulse">Recording... ({formatTime(recordingTime)})</span>
+                <div className="flex-grow text-center rounded-full bg-red-100 animate-pulse">
+                    <span className="font-doodle text-red-500">Recording... ({formatTime(recordingTime)})</span>
                 </div>
                 <button onClick={onSendRecording} className="text-3xl text-green-500 p-2 flex-shrink-0">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
@@ -73,12 +76,14 @@ const ChatFooter = ({ onSendMessage, onSendFile, onStartRecording, onCancelRecor
             {showAttachmentMenu && (
                 <AttachmentMenu 
                     onGalleryClick={() => galleryInputRef.current.click()}
-                    onCameraClick={() => cameraInputRef.current.click()}
+                    onCameraImageClick={() => cameraImageInputRef.current.click()}
+                    onCameraVideoClick={() => cameraVideoInputRef.current.click()}
                 />
             )}
             <div className={`bg-white rounded-full flex items-center p-2 shadow-inner ${replyingTo ? 'rounded-t-none' : ''}`} onClick={() => {setShowAttachmentMenu(false); setShowEmojiPicker(false);}}>
                 <input type="file" ref={galleryInputRef} onChange={handleFileChange} className="hidden" accept="image/*,video/*" />
-                <input type="file" ref={cameraInputRef} onChange={handleFileChange} className="hidden" accept="image/*,video/*" capture="user" />
+                <input type="file" ref={cameraImageInputRef} onChange={handleFileChange} className="hidden" accept="image/*" capture="user" />
+                <input type="file" ref={cameraVideoInputRef} onChange={handleFileChange} className="hidden" accept="video/*" capture="user" />
                 
                 <button onClick={(e) => { e.stopPropagation(); setShowAttachmentMenu(!showAttachmentMenu); }} className="text-2xl p-2 text-gray-500 hover:text-gray-700">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
@@ -87,7 +92,7 @@ const ChatFooter = ({ onSendMessage, onSendFile, onStartRecording, onCancelRecor
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </button>
                 
-                <input type="text" value={input} onChange={handleInputChange} onKeyPress={(e) => e.key === 'Enter' && handleSend()} className="flex-grow bg-transparent border-none focus:ring-0 px-4 font-comfortaa" placeholder="Type a love note..." />
+                <input type="text" value={input} onChange={handleInputChange} onKeyPress={(e) => e.key === 'Enter' && handleSend()} className="flex-grow bg-transparent border-none focus:ring-0 px-4 font-comfortaa text-lg" placeholder="Type a love note..." />
                 
                 {input ? (
                     <button onClick={handleSend} className="p-2 text-white bg-[#9CAF88] rounded-full">
