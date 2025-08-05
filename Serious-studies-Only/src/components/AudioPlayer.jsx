@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-const AudioPlayer = ({ src, googleDriveManager }) => {
+const AudioPlayer = ({ src, googleDriveManager, isSender }) => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [duration, setDuration] = useState(0);
     const [currentTime, setCurrentTime] = useState(0);
@@ -17,7 +17,6 @@ const AudioPlayer = ({ src, googleDriveManager }) => {
         const fetchAudio = async () => {
             setIsLoading(true);
             try {
-                // The src is now just the fileId
                 const response = await fetch(`https://www.googleapis.com/drive/v3/files/${src}?alt=media`, {
                     headers: { 'Authorization': `Bearer ${googleDriveManager.accessToken}` }
                 });
@@ -60,7 +59,7 @@ const AudioPlayer = ({ src, googleDriveManager }) => {
             audio.removeEventListener('timeupdate', setAudioTime);
             audio.removeEventListener('ended', onEnded);
         };
-    }, [audioSrc]); // Re-attach listeners if the src changes
+    }, [audioSrc]);
 
     const togglePlayPause = () => {
         if (isLoading || !audioRef.current) return;
@@ -81,13 +80,13 @@ const AudioPlayer = ({ src, googleDriveManager }) => {
     };
     
     if (isLoading) {
-        return <div className="w-full max-w-xs p-2 font-doodle text-gray-500">Loading audio...</div>;
+        return <div className="w-full max-w-[250px] p-2 font-doodle text-gray-300">Loading audio...</div>;
     }
 
     return (
-        <div className="w-full max-w-xs flex items-center gap-3 p-2 bg-white/30 rounded-full">
+        <div className={`w-full max-w-[250px] flex items-center gap-2 p-2 rounded-full ${isSender ? 'bg-black/20' : 'bg-white/20'}`}>
             <audio ref={audioRef} src={audioSrc} preload="metadata"></audio>
-            <button onClick={togglePlayPause} className="text-gray-700 flex-shrink-0">
+            <button onClick={togglePlayPause} className="text-white flex-shrink-0">
                 {isPlaying ? (
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v4a1 1 0 11-2 0V8z" clipRule="evenodd" /></svg>
                 ) : (
@@ -95,12 +94,11 @@ const AudioPlayer = ({ src, googleDriveManager }) => {
                 )}
             </button>
             <div className="flex-grow h-10 flex items-center gap-1">
-                {/* Faux waveform */}
                 {[...Array(25)].map((_, i) => (
-                    <div key={i} className="w-1 bg-gray-500 rounded-full" style={{ height: `${Math.random() * 70 + 30}%` }}></div>
+                    <div key={i} className="w-1 bg-gray-400/50 rounded-full" style={{ height: `${Math.random() * 70 + 30}%` }}></div>
                 ))}
             </div>
-            <span className="font-doodle text-base text-gray-600 w-12 text-right">{formatTime(duration)}</span>
+            <span className="font-doodle text-base text-gray-300 w-12 text-right">{formatTime(duration)}</span>
         </div>
     );
 };

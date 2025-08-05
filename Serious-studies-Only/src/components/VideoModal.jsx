@@ -59,10 +59,10 @@ const VideoModal = ({ post, onClose, googleDriveManager }) => {
 
     const renderContent = () => {
         if (isLoading) {
-            return <p className="font-doodle text-xl text-gray-600 p-8">Loading video...</p>;
+            return <p className="font-doodle text-xl text-gray-300 p-8">Loading video...</p>;
         }
         if (error) {
-            return <p className="font-doodle text-xl text-red-500 p-8">{error}</p>;
+            return <p className="font-doodle text-xl text-red-400 p-8">{error}</p>;
         }
         if (videoSrc) {
             return (
@@ -71,7 +71,7 @@ const VideoModal = ({ post, onClose, googleDriveManager }) => {
                     src={videoSrc}
                     controls
                     autoPlay
-                    className="max-w-full max-h-[90vh] bg-black"
+                    className="max-w-full max-h-[85vh] bg-black rounded-md"
                 >
                     Your browser does not support the video tag.
                 </video>
@@ -81,12 +81,15 @@ const VideoModal = ({ post, onClose, googleDriveManager }) => {
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-85 flex justify-center items-center z-[101]" onClick={onClose}>
-            <div className="bg-white p-4 rounded-lg max-w-4xl w-auto max-h-[95vh] flex flex-col items-center justify-center" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex justify-center items-center z-[101]" onClick={onClose}>
+            <div 
+                className="bg-gray-800/50 backdrop-blur-xl border border-white/20 p-4 rounded-lg shadow-xl w-auto max-w-4xl max-h-[95vh] flex flex-col items-center" 
+                onClick={e => e.stopPropagation()}
+            >
                 {renderContent()}
-                <div className="text-center mt-2 flex-shrink-0">
-                    <p className="font-handwriting text-2xl text-gray-700">{post.content || post.fileName}</p>
-                    <p className="font-doodle text-sm text-gray-500 mt-1">{post.date}</p>
+                <div className="text-center mt-4 flex-shrink-0 text-white">
+                    <p className="font-handwriting text-2xl text-gray-200">{post.content || post.fileName}</p>
+                    <p className="font-doodle text-sm text-gray-400 mt-1">{post.date}</p>
                 </div>
             </div>
         </div>

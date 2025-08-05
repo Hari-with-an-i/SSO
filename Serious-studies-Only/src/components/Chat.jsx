@@ -7,6 +7,7 @@ import PhotoModal from './PhotoModal';
 import VideoModal from './VideoModal';
 import ChatFooter from './ChatFooter';
 import MessageBubble from './MessageBubble';
+import StarryNightBackground from './StarryNightBackground';
 
 const Chat = ({ coupleId, userId, googleDriveManager }) => {
     const [messages, setMessages] = useState([]);
@@ -16,6 +17,7 @@ const Chat = ({ coupleId, userId, googleDriveManager }) => {
     const [replyingTo, setReplyingTo] = useState(null);
     const [locallyDeletedIds, setLocallyDeletedIds] = useState(new Set());
     const [isPartnerTyping, setIsPartnerTyping] = useState(false);
+    const [selectedMessage, setSelectedMessage] = useState(null);
     
     const messagesEndRef = useRef(null);
     const mediaRecorderRef = useRef(null);
@@ -28,10 +30,7 @@ const Chat = ({ coupleId, userId, googleDriveManager }) => {
         const messagesCol = db.collection('couples').doc(coupleId).collection('messages');
         const q = messagesCol.orderBy('createdAt', 'asc');
         const unsubscribe = q.onSnapshot((snapshot) => {
-            const fetchedMessages = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-            }));
+            const fetchedMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setMessages(fetchedMessages);
         });
         return () => unsubscribe();
@@ -66,13 +65,11 @@ const Chat = ({ coupleId, userId, googleDriveManager }) => {
     const handleSendMessage = async (text) => {
         if (!text.trim() && !replyingTo) return;
         updateTypingStatus(false);
-
         const messagesCol = db.collection('couples').doc(coupleId).collection('messages');
         let messageData = { 
             type: 'text', text, senderId: userId, 
             createdAt: firebase.firestore.FieldValue.serverTimestamp() 
         };
-
         if (replyingTo) {
             messageData.replyTo = {
                 originalMessageId: replyingTo.id,
@@ -81,7 +78,6 @@ const Chat = ({ coupleId, userId, googleDriveManager }) => {
             };
             setReplyingTo(null);
         }
-        
         await messagesCol.add(messageData);
     };
     
@@ -93,13 +89,11 @@ const Chat = ({ coupleId, userId, googleDriveManager }) => {
         const fileType = file.type.startsWith('image/') ? 'image' : 'video';
         const tempId = `temp_${Date.now()}`;
         const localUrl = URL.createObjectURL(file);
-
         const tempMessage = {
             id: tempId, type: fileType, senderId: userId,
             localUrl, status: 'uploading'
         };
         setMessages(prev => [...prev, tempMessage]);
-
         try {
             const fileId = await googleDriveManager.uploadFile(file, 'chat_media');
             if (fileId) {
@@ -181,37 +175,51 @@ const Chat = ({ coupleId, userId, googleDriveManager }) => {
 
     const handleDeleteForMe = (messageId) => {
         setLocallyDeletedIds(prev => new Set(prev).add(messageId));
+        setSelectedMessage(null);
     };
 
     const handleDeleteForEveryone = async (messageId) => {
-        const messageRef = db.collection('couples').doc(coupleId).collection('messages').doc(messageId);
-        await messageRef.update({
-            type: 'deleted', text: null, fileId: null, fileName: null, replyTo: null
-        });
+        await db.collection('couples').doc(coupleId).collection('messages').doc(messageId).delete();
+        setSelectedMessage(null);
     };
 
     const visibleMessages = messages.filter(msg => !locallyDeletedIds.has(msg.id));
 
     return (
-        <div className="app-screen flex flex-col h-screen bg-[#FAF7F0]" style={{backgroundImage: "url('https://www.transparenttextures.com/patterns/paper-fibers.png')"}}>
-            <header className="bg-[#9CAF88] p-4 text-center shadow-md flex-shrink-0"><h1 className="font-header text-4xl text-white">Love Notes</h1></header>
+        <div className="app-screen relative bg-[#0a0c27] grid grid-rows-[auto_1fr_auto] h-screen">
+            <StarryNightBackground />
             
-            <main className="flex-grow p-4 overflow-y-auto">
+            <header className="relative z-20 bg-black/20 p-4 text-center backdrop-blur-sm flex items-center justify-between">
+                {selectedMessage ? (
+                    <>
+                        <button onClick={() => setSelectedMessage(null)} className="font-header text-lg text-white">Cancel</button>
+                        <div className="font-doodle text-white">1 Selected</div>
+                        <div className="flex gap-4">
+                            <button onClick={() => { setReplyingTo(selectedMessage); setSelectedMessage(null); }} className="text-2xl text-white">↩️</button>
+                            <button onClick={() => handleDeleteForEveryone(selectedMessage.id)} className="text-2xl text-white">🗑️</button>
+                        </div>
+                    </>
+                ) : (
+                    <h1 className="font-header text-4xl text-white w-full" style={{textShadow: '0 0 5px rgba(255,250,205,0.5)'}}>Love Notes</h1>
+                )}
+            </header>
+            
+            <main className="relative z-10 overflow-y-auto p-4">
                 {visibleMessages.map(msg => (
                     <MessageBubble
                         key={msg.id}
                         msg={msg}
                         isSender={msg.senderId === userId}
                         onReply={setReplyingTo}
-                        onDeleteForMe={handleDeleteForMe}
-                        onDeleteForEveryone={handleDeleteForEveryone}
+                        onLongPress={setSelectedMessage}
+                        isSelected={selectedMessage?.id === msg.id}
                         onMediaClick={setViewedMedia}
                         googleDriveManager={googleDriveManager}
                     />
                 ))}
                 {isPartnerTyping && (
                     <div className="flex justify-start mb-4">
-                        <div className="p-3 bg-white rounded-3xl rounded-bl-lg font-doodle text-gray-500">
+                        <div className="p-3 bg-white/10 backdrop-blur-sm rounded-3xl rounded-bl-lg font-doodle text-gray-300">
                             typing...
                         </div>
                     </div>
@@ -219,7 +227,7 @@ const Chat = ({ coupleId, userId, googleDriveManager }) => {
                 <div ref={messagesEndRef} />
             </main>
 
-            <footer className="p-4 border-t-2 border-dashed border-[#9CAF88] flex-shrink-0">
+            <footer className="relative z-20 p-4 border-t border-white/20">
                 <ChatFooter
                     onSendMessage={handleSendMessage}
                     onSendFile={handleSendFile}
@@ -234,11 +242,12 @@ const Chat = ({ coupleId, userId, googleDriveManager }) => {
                 />
             </footer>
 
+            {/* --- THIS IS THE CORRECTED SECTION --- */}
             {viewedMedia && viewedMedia.type === 'image' && (
                 <PhotoModal post={viewedMedia} onClose={() => setViewedMedia(null)} />
             )}
-             {viewedMedia && viewedMedia.type === 'video' && (
-                <VideoModal post={viewedMedia} onClose={() => setViewedMedia(null)} />
+            {viewedMedia && viewedMedia.type === 'video' && (
+                <VideoModal post={viewedMedia} onClose={() => setViewedMedia(null)} googleDriveManager={googleDriveManager} />
             )}
         </div>
     );

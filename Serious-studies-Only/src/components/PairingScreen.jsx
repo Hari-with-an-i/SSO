@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { db } from '../firebase';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/firestore';
+import StarryNightBackground from './StarryNightBackground';
 
 const PairingScreen = ({ user, setCoupleId }) => {
     const [code, setCode] = useState('');
@@ -43,27 +44,28 @@ const PairingScreen = ({ user, setCoupleId }) => {
     };
 
     return (
-        <div className="app-screen bg-[#A8BFCE] flex justify-center items-center p-4">
-            <div className="w-full max-w-md bg-[#FAF7F0] p-8 rounded-2xl shadow-2xl text-center space-y-6">
+        <div className="app-screen relative bg-[#0a0c27] flex justify-center items-center p-4">
+            <StarryNightBackground />
+            <div className="relative z-10 w-full max-w-md bg-black/20 backdrop-blur-md border border-white/20 p-8 rounded-2xl shadow-xl text-center text-white space-y-6">
                 <div className="mb-4">
                     <h2 className="font-header text-5xl">How It Works</h2>
-                    <p className="font-doodle text-gray-600 mt-2">
+                    <p className="font-doodle text-gray-300 mt-2">
                         To get started, **one person** should create a new space to get a code. The **other person** then uses that code to join.
                     </p>
                 </div>
 
                 <div>
                     <h2 className="font-header text-5xl mb-2">Create a New Space</h2>
-                    <button onClick={createCoupleSpace} className="w-full mt-2 bg-[#9CAF88] text-white font-header text-3xl p-2 rounded-lg">I'm setting up our gift!</button>
+                    <button onClick={createCoupleSpace} className="w-full mt-2 bg-yellow-400 text-gray-800 font-header text-3xl p-2 rounded-lg hover:bg-yellow-300 transition-colors">I'm setting up our gift!</button>
                 </div>
 
-                <div className="font-doodle text-gray-500">OR</div>
+                <div className="font-doodle text-gray-400">OR</div>
 
                 <div>
                     <h2 className="font-header text-5xl mb-2">Join Your Partner</h2>
-                    <input type="text" value={code} onChange={e => setCode(e.target.value)} placeholder="Enter pairing code..." className="w-full p-3 rounded-lg border-2 font-doodle text-center uppercase" />
-                    <button onClick={joinCoupleSpace} className="w-full mt-4 bg-[#F4A599] text-white font-header text-3xl p-2 rounded-lg">Join their space</button>
-                    {error && <p className="text-red-500 mt-2 text-sm">{error}</p>}
+                    <input type="text" value={code} onChange={e => setCode(e.target.value)} placeholder="Enter pairing code..." className="w-full p-3 rounded-lg border-2 border-white/20 bg-black/20 focus:border-yellow-400 focus:ring-0 font-doodle text-center uppercase placeholder:text-gray-400" />
+                    <button onClick={joinCoupleSpace} className="w-full mt-4 bg-white/10 text-white font-header text-3xl p-2 rounded-lg hover:bg-white/20 transition-colors">Join their space</button>
+                    {error && <p className="text-red-400 mt-2 text-sm font-doodle">{error}</p>}
                 </div>
             </div>
         </div>

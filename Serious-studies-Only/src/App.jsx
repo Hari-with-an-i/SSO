@@ -3,9 +3,9 @@ import { auth, db } from './firebase';
 import AuthScreen from './components/AuthScreen';
 import PairingScreen from './components/PairingScreen';
 import LandingPage from './components/LandingPage';
+import ConnectDriveScreen from './components/ConnectDriveScreen'; // Import the new screen
 import googleDriveManager from './googleDriveManager';
 
-// Lazy load the main feature components
 const TheWall = React.lazy(() => import('./components/TheWall'));
 const Calendar = React.lazy(() => import('./components/Calendar'));
 const DailyTasks = React.lazy(() => import('./components/DailyTasks'));
@@ -23,6 +23,7 @@ const App = () => {
     const [user, setUser] = useState(null);
     const [coupleId, setCoupleId] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [isDriveReady, setIsDriveReady] = useState(false);
     const [activeView, setActiveView] = useState('landing');
 
     useEffect(() => {
@@ -32,7 +33,10 @@ const App = () => {
                 const userDocSnap = await userDocRef.get();
                 if (userDocSnap.exists && userDocSnap.data().coupleId) {
                     setCoupleId(userDocSnap.data().coupleId);
-                    googleDriveManager.silentConnect();
+                    // Check for an existing connection without forcing a popup
+                    googleDriveManager.silentConnect().then(success => {
+                        setIsDriveReady(success);
+                    });
                 } else {
                     setCoupleId(null);
                 }
@@ -40,6 +44,7 @@ const App = () => {
             } else {
                 setUser(null);
                 setCoupleId(null);
+                setIsDriveReady(false);
             }
             setLoading(false);
         });
@@ -51,6 +56,9 @@ const App = () => {
         if (!user) return <AuthScreen />;
         if (!coupleId) return <PairingScreen user={user} setCoupleId={setCoupleId} />;
         
+        // This is the new step in the flow
+        if (!isDriveReady) return <ConnectDriveScreen onConnected={() => setIsDriveReady(true)} />;
+
         if (activeView === 'landing') {
             return <LandingPage setActiveView={setActiveView} />;
         }
