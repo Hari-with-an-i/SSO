@@ -17,3 +17,15 @@ body {
 ::-webkit-scrollbar-track { background: #FAF7F0; }
 ::-webkit-scrollbar-thumb { background: #9CAF88; border-radius: 10px; }
 ::-webkit-scrollbar-thumb:hover { background: #8a9f7a; }
+
+/* --- New Landing Page Styles --- */
+.app-screen {
+    width: 100vw;
+    height: 100vh;
+    overflow: auto;
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 1; }
+}

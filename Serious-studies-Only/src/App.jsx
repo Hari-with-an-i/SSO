@@ -2,9 +2,10 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { auth, db } from './firebase';
 import AuthScreen from './components/AuthScreen';
 import PairingScreen from './components/PairingScreen';
+import LandingPage from './components/LandingPage';
 import googleDriveManager from './googleDriveManager';
 
-// Lazy load the main components
+// Lazy load the main feature components
 const TheWall = React.lazy(() => import('./components/TheWall'));
 const Calendar = React.lazy(() => import('./components/Calendar'));
 const DailyTasks = React.lazy(() => import('./components/DailyTasks'));
@@ -13,8 +14,8 @@ const KissJar = React.lazy(() => import('./components/KissJar'));
 const SettingsScreen = React.lazy(() => import('./components/SettingsScreen'));
 
 const LoadingFallback = () => (
-    <div className="app-screen flex justify-center items-center">
-        <h1 className="font-header text-4xl animate-pulse">Loading...</h1>
+    <div className="app-screen flex justify-center items-center bg-[#1a1a1a]">
+        <h1 className="font-header text-4xl text-white animate-pulse">Loading...</h1>
     </div>
 );
 
@@ -22,8 +23,7 @@ const App = () => {
     const [user, setUser] = useState(null);
     const [coupleId, setCoupleId] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [isDriveReady, setIsDriveReady] = useState(false);
-    const [activeView, setActiveView] = useState('wall');
+    const [activeView, setActiveView] = useState('landing');
 
     useEffect(() => {
         const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
@@ -31,11 +31,8 @@ const App = () => {
                 const userDocRef = db.collection('users').doc(currentUser.uid);
                 const userDocSnap = await userDocRef.get();
                 if (userDocSnap.exists && userDocSnap.data().coupleId) {
-                    const currentCoupleId = userDocSnap.data().coupleId;
-                    setCoupleId(currentCoupleId);
-                    googleDriveManager.silentConnect().then(success => {
-                        setIsDriveReady(true);
-                    });
+                    setCoupleId(userDocSnap.data().coupleId);
+                    googleDriveManager.silentConnect();
                 } else {
                     setCoupleId(null);
                 }
@@ -43,46 +40,40 @@ const App = () => {
             } else {
                 setUser(null);
                 setCoupleId(null);
-                setIsDriveReady(false);
             }
             setLoading(false);
         });
         return () => unsubscribe();
     }, []);
 
-    const NavItem = ({ view, icon, label }) => (
-        <button onClick={() => setActiveView(view)} className={`text-center text-white transition-transform hover:translate-y-[-5px] ${activeView !== view ? 'opacity-70' : ''}`}>
-            <span className="text-3xl">{icon}</span>
-            <span className="block text-xs font-doodle">{label}</span>
-        </button>
-    );
-
     const renderContent = () => {
         if (loading) return <LoadingFallback />;
         if (!user) return <AuthScreen />;
         if (!coupleId) return <PairingScreen user={user} setCoupleId={setCoupleId} />;
         
+        if (activeView === 'landing') {
+            return <LandingPage setActiveView={setActiveView} />;
+        }
+
+        const BackButton = () => (
+            <button 
+                onClick={() => setActiveView('landing')}
+                className="fixed top-4 left-4 z-50 bg-white/20 text-white font-header px-4 py-1 rounded-full backdrop-blur-sm hover:bg-white/40 transition-colors"
+            >
+                ‹ Home
+            </button>
+        );
+
         return (
-            <React.Fragment>
-                <Suspense fallback={<LoadingFallback />}>
-                    <div className="relative">
-                        {activeView === 'wall' && <TheWall coupleId={coupleId} userId={user.uid} googleDriveManager={googleDriveManager} />}
-                        {activeView === 'calendar' && <Calendar coupleId={coupleId} userId={user.uid} />}
-                        {activeView === 'tasks' && <DailyTasks coupleId={coupleId} userId={user.uid} />}
-                        {activeView === 'chat' && <Chat coupleId={coupleId} userId={user.uid} googleDriveManager={googleDriveManager} />}
-                        {activeView === 'kisses' && <KissJar coupleId={coupleId} userId={user.uid} />}
-                        {activeView === 'settings' && <SettingsScreen coupleId={coupleId} userId={user.uid} setCoupleId={setCoupleId} />}
-                    </div>
-                </Suspense>
-                <nav className="fixed bottom-0 left-0 right-0 h-20 bg-[#9CAF88] flex justify-around items-center rounded-t-2xl shadow-lg z-50">
-                    <NavItem view="wall" icon="🖼️" label="Wall" />
-                    <NavItem view="calendar" icon="🗓️" label="Dates" />
-                    <NavItem view="tasks" icon="📝" label="Tasks" />
-                    <NavItem view="chat" icon="💬" label="Chat" />
-                    <NavItem view="kisses" icon="🍯" label="Kisses" />
-                    <NavItem view="settings" icon="⚙️" label="Settings" />
-                </nav>
-            </React.Fragment>
+            <Suspense fallback={<LoadingFallback />}>
+                <BackButton />
+                {activeView === 'wall' && <TheWall coupleId={coupleId} userId={user.uid} googleDriveManager={googleDriveManager} />}
+                {activeView === 'calendar' && <Calendar coupleId={coupleId} userId={user.uid} />}
+                {activeView === 'tasks' && <DailyTasks coupleId={coupleId} userId={user.uid} />}
+                {activeView === 'chat' && <Chat coupleId={coupleId} userId={user.uid} googleDriveManager={googleDriveManager} />}
+                {activeView === 'kisses' && <KissJar coupleId={coupleId} userId={user.uid} />}
+                {activeView === 'settings' && <SettingsScreen coupleId={coupleId} userId={user.uid} setCoupleId={setCoupleId} />}
+            </Suspense>
         );
     };
 
