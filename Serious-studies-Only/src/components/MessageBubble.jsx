@@ -1,21 +1,24 @@
-import React from 'react';
+import React, { useState } from 'react';
 import AudioPlayer from './AudioPlayer';
 import googleDriveManager from '../googleDriveManager';
-import { useDrag, useLongPress } from 'react-use-gesture';
+import { useDrag } from 'react-use-gesture'; // CORRECTED: Only import useDrag
 import { useSpring, animated } from '@react-spring/web';
 
 const MessageBubble = ({ msg, isSender, onReply, onLongPress, isSelected, onMediaClick, googleDriveManager }) => {
     const [{ x }, api] = useSpring(() => ({ x: 0, config: { tension: 250, friction: 30 } }));
 
+    // A single, unified gesture handler for both swipe and long-press
     const bindGestures = useDrag(({ down, movement: [mx], longpress, cancel }) => {
+        // If a long press is detected, trigger the onLongPress function and cancel the drag
         if (longpress && isSender) {
             onLongPress(msg);
-            cancel();
+            cancel(); // Prevent the drag from continuing
             return;
         }
 
-        if (!isSender && mx < 0) return;
-        if (isSender && mx > 0) return;
+        // Standard swipe-to-reply logic
+        if (!isSender && mx < 0) return; // Prevent receiver from swiping left
+        if (isSender && mx > 0) return; // Prevent sender from swiping right
         
         if (!down && Math.abs(mx) > 60) {
             onReply(msg);
@@ -26,9 +29,10 @@ const MessageBubble = ({ msg, isSender, onReply, onLongPress, isSelected, onMedi
         filterTaps: true,
         bounds: isSender ? { left: -100, right: 0 } : { left: 0, right: 100 },
         rubberband: true,
-        delay: 200
+        delay: 200 // A 200ms delay allows the library to detect a long press
     });
 
+    // Helper component to render media with its own "processing" state
     const MediaMessage = ({ msg, onMediaClick }) => {
         const [isThumbnailReady, setIsThumbnailReady] = useState(false);
         const mediaProps = {
